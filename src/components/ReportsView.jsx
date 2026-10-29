@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package, Boxes } from 'lucide-react';
-import { getAllBills, getAllExpenses, getProfile } from '../store';
+import { useState, useEffect, useMemo } from 'react';
+import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package, Boxes, ShoppingCart, FileText, UserCheck, Calendar, Filter } from 'lucide-react';
+import { getAllBills, getAllExpenses, getProfile, getAllPurchases, getAllBrokers } from '../store';
 import { formatCurrency, getFYOptions, belongsToProfile, isCancelledBill, salesSign, countsAsSales, calculateLineItemTax, roundQty, parseLocalDate, amountDue } from '../utils';
+import { matchesCompanyAndYear } from '../utils/companyContext';
 import { toast } from './Toast';
 import HelpButton from './HelpButton';
 import PartyOutstandingReport from './PartyOutstandingReport';
@@ -18,10 +19,12 @@ const MONTHS = [
 
 const getBillCurrency = billCurrency;
 
-export default function ReportsView() {
+export default function ReportsView({ activeProfile, activeFY }) {
   const [bills, setBills] = useState([]);
   const [expenses, setExpenses] = useState([]);
-  const [activeTab, setActiveTab] = useState('pl');
+  const [purchases, setPurchases] = useState([]);
+  const [brokers, setBrokers] = useState([]);
+  const [activeTab, setActiveTab] = useState('sales'); // Default to Sales Report
   const [filterMode, setFilterMode] = useState('fy');
   const [fyFilter, setFyFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
@@ -30,6 +33,24 @@ export default function ReportsView() {
   const [currencyFilter, setCurrencyFilter] = useState('INR');
   const [businessName, setBusinessName] = useState('');
 
+  // Sales Report Filters
+  const [salesSearch, setSalesSearch] = useState('');
+  const [salesParty, setSalesParty] = useState('');
+  const [salesBroker, setSalesBroker] = useState('');
+  const [salesFrom, setSalesFrom] = useState('');
+  const [salesTo, setSalesTo] = useState('');
+
+  // Purchase Report Filters
+  const [purchaseSearch, setPurchaseSearch] = useState('');
+  const [purchaseParty, setPurchaseParty] = useState('');
+  const [purchaseBroker, setPurchaseBroker] = useState('');
+  const [purchaseFrom, setPurchaseFrom] = useState('');
+  const [purchaseTo, setPurchaseTo] = useState('');
+
+  // Broker Report State
+  const [brokerSearch, setBrokerSearch] = useState('');
+  const [selectedBroker, setSelectedBroker] = useState(null);
+
   const fyOptions = getFYOptions();
   const currentYear = new Date().getFullYear();
   const yearOptions = [];
@@ -37,17 +58,22 @@ export default function ReportsView() {
 
   const loadData = async () => {
     try {
-      const [billData, expData, prof] = await Promise.all([
-        getAllBills(), getAllExpenses(), getProfile().catch(() => null),
+      const [billData, expData, purData, brkData, prof] = await Promise.all([
+        getAllBills().catch(() => []),
+        getAllExpenses().catch(() => []),
+        getAllPurchases().catch(() => []),
+        getAllBrokers().catch(() => []),
+        getProfile().catch(() => null),
       ]);
-      // v1.10.64 (#55) — reports are per business. Mixing two companies'
-      // turnover into one profit figure is simply a wrong number.
-      // v1.10.67 (#66 item 12) — cancelled invoices earned nothing.
-      setBills((billData || []).filter(b => belongsToProfile(b, prof) && !isCancelledBill(b)));
-      // v1.10.66 (#64) — expenses too. Filtering only the invoices left every
-      // company's expenses in each company's profit and loss.
-      setExpenses((expData || []).filter(e => belongsToProfile(e, prof)));
-      setBusinessName(prof?.businessName || '');
+      const currentComp = activeProfile || prof;
+      const bList = (billData || []).filter(b => matchesCompanyAndYear(b, currentComp, activeFY) && !isCancelledBill(b));
+      const eList = (expData || []).filter(e => matchesCompanyAndYear(e, currentComp, activeFY));
+      const pList = (purData || []).filter(p => matchesCompanyAndYear(p, currentComp, activeFY));
+      setBills(bList);
+      setExpenses(eList);
+      setPurchases(pList);
+      setBrokers(brkData || []);
+      setBusinessName(currentComp?.businessName || '');
     } catch {
       toast('Failed to load data', 'error');
     }
@@ -56,11 +82,11 @@ export default function ReportsView() {
   useEffect(() => {
     const now = new Date();
     const fy = fyOptions[0];
-    if (fy) setFyFilter(fy.value);
+    if (fy) setFyFilter(activeFY && activeFY !== 'all' ? activeFY : fy.value);
     setYearFilter(String(now.getFullYear()));
     setMonthFilter(String(now.getMonth()));
     loadData();
-  }, []);
+  }, [activeFY, activeProfile]);
 
   const filterByPeriod = (date) => {
     if (!date) return false;
@@ -85,23 +111,18 @@ export default function ReportsView() {
     filterByPeriod(exp.date) && ((exp.currency || 'INR') === currencyFilter));
 
   // All distinct currencies in the filtered period
-  const allCurrencies = [...new Set(allFilteredBills.map(getBillCurrency))].sort();
-  // Set currency filter to first available if current selection not in list
-  useEffect(() => {
-    if (allCurrencies.length > 0 && !allCurrencies.includes(currencyFilter)) {
-      setCurrencyFilter(allCurrencies[0]);
-    }
-  }, [allCurrencies.join(',')]);
+  const allCurrencies = useMemo(() => [...new Set(allFilteredBills.map(getBillCurrency))].sort(), [allFilteredBills]);
+  const activeCurrency = (allCurrencies.length > 0 && !allCurrencies.includes(currencyFilter)) ? allCurrencies[0] : currencyFilter;
 
   // v1.10.77 (#85) - the period in words, for exported reports.
   const periodLabel = filterMode === 'fy'
     ? (fyOptions.find(f => f.value === fyFilter)?.label || '')
     : `${MONTHS[parseInt(monthFilter)] || ''} ${yearFilter}`;
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  const exportSubtitle = (extra = '') => [businessName, periodLabel, currencyFilter !== 'INR' ? currencyFilter : '', extra].filter(Boolean).join(', ');
+  const exportSubtitle = (extra = '') => [businessName, periodLabel, activeCurrency !== 'INR' ? activeCurrency : '', extra].filter(Boolean).join(', ');
 
   // Bills for P&L — only selected currency
-  const plBills = allFilteredBills.filter(b => getBillCurrency(b) === currencyFilter);
+  const plBills = allFilteredBills.filter(b => getBillCurrency(b) === activeCurrency);
 
   // P&L
   // TCS on an invoice is collected for the government, like GST: it is in the
@@ -182,6 +203,143 @@ export default function ReportsView() {
 
   const agingSorted = [...agingFiltered].sort((a, b) => b.daysOverdue - a.daysOverdue);
 
+  // Distinct parties & brokers for filter dropdowns
+  const salesParties = useMemo(() => {
+    const set = new Set();
+    bills.forEach(b => { if (b.clientName) set.add(b.clientName); });
+    return Array.from(set).sort();
+  }, [bills]);
+
+  const allBrokerNames = useMemo(() => {
+    const set = new Set();
+    brokers.forEach(b => { if (b.name) set.add(b.name); });
+    bills.forEach(b => {
+      const brk = b.data?.details?.brokerName;
+      if (brk) set.add(brk);
+    });
+    return Array.from(set).sort();
+  }, [brokers, bills]);
+
+  const purchaseSuppliers = useMemo(() => {
+    const set = new Set();
+    purchases.forEach(p => {
+      const s = p.vendorName || p.supplierName || p.sellerName;
+      if (s) set.add(s);
+    });
+    return Array.from(set).sort();
+  }, [purchases]);
+
+  // Filtered Sales Bills
+  const filteredSalesBills = useMemo(() => {
+    return bills.filter(b => {
+      if (!countsAsSales(b)) return false;
+      if (salesFrom && b.invoiceDate < salesFrom) return false;
+      if (salesTo && b.invoiceDate > salesTo) return false;
+      if (salesParty && (b.clientName || '').toLowerCase() !== salesParty.toLowerCase()) return false;
+      const bBroker = b.data?.details?.brokerName || '';
+      if (salesBroker && bBroker.toLowerCase() !== salesBroker.toLowerCase()) return false;
+      if (salesSearch.trim()) {
+        const q = salesSearch.toLowerCase();
+        const matchNo = (b.invoiceNumber || '').toLowerCase().includes(q);
+        const matchParty = (b.clientName || '').toLowerCase().includes(q);
+        const matchBroker = (bBroker || '').toLowerCase().includes(q);
+        const matchItem = (b.data?.items || []).some(it => (it.name || '').toLowerCase().includes(q) || (it.lotNo || '').toLowerCase().includes(q));
+        if (!matchNo && !matchParty && !matchBroker && !matchItem) return false;
+      }
+      return true;
+    });
+  }, [bills, salesFrom, salesTo, salesParty, salesBroker, salesSearch]);
+
+  const salesSummary = useMemo(() => {
+    let totalSales = 0;
+    let totalMeters = 0;
+    let totalPcs = 0;
+    let totalTax = 0;
+    filteredSalesBills.forEach(b => {
+      totalSales += Number(b.totalAmount) || 0;
+      totalTax += Number(b.totalTaxAmount) || 0;
+      (b.data?.items || []).forEach(it => {
+        totalPcs += Number(it.pcs) || 0;
+        totalMeters += (it.unit === 'Mtr' || it.pcs ? Number(it.quantity) || 0 : 0);
+      });
+    });
+    return { totalSales, totalMeters, totalPcs, totalTax, count: filteredSalesBills.length };
+  }, [filteredSalesBills]);
+
+  // Filtered Purchases
+  const filteredPurchaseList = useMemo(() => {
+    return purchases.filter(p => {
+      const date = p.billDate || p.date;
+      if (purchaseFrom && date < purchaseFrom) return false;
+      if (purchaseTo && date > purchaseTo) return false;
+      const party = p.vendorName || p.supplierName || p.sellerName || '';
+      if (purchaseParty && party.toLowerCase() !== purchaseParty.toLowerCase()) return false;
+      const bBroker = p.brokerName || '';
+      if (purchaseBroker && bBroker.toLowerCase() !== purchaseBroker.toLowerCase()) return false;
+      if (purchaseSearch.trim()) {
+        const q = purchaseSearch.toLowerCase();
+        const matchNo = (p.billNumber || p.id || '').toLowerCase().includes(q);
+        const matchParty = party.toLowerCase().includes(q);
+        if (!matchNo && !matchParty) return false;
+      }
+      return true;
+    });
+  }, [purchases, purchaseFrom, purchaseTo, purchaseParty, purchaseBroker, purchaseSearch]);
+
+  const purchaseSummary = useMemo(() => {
+    let totalAmount = 0;
+    let totalTax = 0;
+    filteredPurchaseList.forEach(p => {
+      totalAmount += Number(p.totalAmount || p.amount) || 0;
+      totalTax += Number(p.taxAmount || p.gstAmount || p.totalTaxAmount) || 0;
+    });
+    return { totalAmount, totalTax, count: filteredPurchaseList.length };
+  }, [filteredPurchaseList]);
+
+  // Broker Report Data
+  const brokerReportData = useMemo(() => {
+    const map = {};
+    allBrokerNames.forEach(name => {
+      const foundB = brokers.find(b => b.name === name);
+      map[name] = {
+        name,
+        phone: foundB?.phone || '',
+        billCount: 0,
+        totalPcs: 0,
+        totalMeters: 0,
+        totalAmount: 0,
+        bills: [],
+      };
+    });
+    bills.filter(countsAsSales).forEach(b => {
+      const brkName = b.data?.details?.brokerName || 'Direct (No Broker)';
+      if (!map[brkName]) {
+        map[brkName] = {
+          name: brkName,
+          phone: '',
+          billCount: 0,
+          totalPcs: 0,
+          totalMeters: 0,
+          totalAmount: 0,
+          bills: [],
+        };
+      }
+      map[brkName].billCount += 1;
+      map[brkName].totalAmount += Number(b.totalAmount) || 0;
+      map[brkName].bills.push(b);
+      (b.data?.items || []).forEach(it => {
+        map[brkName].totalPcs += Number(it.pcs) || 0;
+        map[brkName].totalMeters += (it.unit === 'Mtr' || it.pcs ? Number(it.quantity) || 0 : 0);
+      });
+    });
+    const list = Object.values(map);
+    if (brokerSearch.trim()) {
+      const q = brokerSearch.toLowerCase();
+      return list.filter(b => b.name.toLowerCase().includes(q) || b.phone.includes(q));
+    }
+    return list;
+  }, [brokers, bills, allBrokerNames, brokerSearch]);
+
   return (
     <div className="dashboard-container">
       <div className="page-header">
@@ -202,11 +360,19 @@ export default function ReportsView() {
         </div>
       </div>
 
-      {/* Tab Selector — v1.9.5 adds Client + Product tabs */}
+      {/* Tab Selector */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-        <button className={`btn ${activeTab === 'pl' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('pl')}>
-          <BarChart3 size={16} /> Profit & Loss
+        <button className={`btn ${activeTab === 'sales' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('sales')}>
+          <FileText size={16} /> Sales Report (बिक्री)
+        </button>
+        <button className={`btn ${activeTab === 'purchases' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('purchases')}>
+          <ShoppingCart size={16} /> Purchase Report (खरीद)
+        </button>
+        <button className={`btn ${activeTab === 'brokers' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('brokers')}>
+          <UserCheck size={16} /> Broker Report (दलाल)
         </button>
         <button className={`btn ${activeTab === 'aging' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('aging')}>
@@ -215,6 +381,10 @@ export default function ReportsView() {
         <button className={`btn ${activeTab === 'party' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('party')}>
           <Users size={16} /> Party Outstanding
+        </button>
+        <button className={`btn ${activeTab === 'pl' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('pl')}>
+          <BarChart3 size={16} /> Profit & Loss
         </button>
         <button className={`btn ${activeTab === 'clients' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('clients')}>
@@ -230,9 +400,8 @@ export default function ReportsView() {
         </button>
       </div>
 
-      {/* v1.10.74 - Period + Currency Selector, shared by P&L, Client Analytics
-          and Product Performance (they all read the same period/currency). */}
-      {activeTab !== 'aging' && activeTab !== 'party' && activeTab !== 'stock' && (
+      {/* Period + Currency Selector for P&L, Client Analytics & Product Performance */}
+      {(activeTab === 'pl' || activeTab === 'clients' || activeTab === 'products') && (
           <div className="glass-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div className="form-group" style={{ margin: 0 }}>
@@ -275,6 +444,612 @@ export default function ReportsView() {
               )}
             </div>
           </div>
+      )}
+
+      {/* SALES REPORT TAB */}
+      {activeTab === 'sales' && (
+        <div>
+          {/* Filters Bar */}
+          <div className="glass-panel" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', alignItems: 'flex-end' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Search (खोजें)</label>
+                <div style={{ position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ paddingLeft: '2rem' }}
+                    placeholder="Bill, Party, Broker..."
+                    value={salesSearch}
+                    onChange={e => setSalesSearch(e.target.value)}
+                  />
+                  {salesSearch && (
+                    <button onClick={() => setSalesSearch('')} style={{ position: 'absolute', right: 8, top: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Party (पार्टी)</label>
+                <select className="form-input" value={salesParty} onChange={e => setSalesParty(e.target.value)}>
+                  <option value="">All Parties ({salesParties.length})</option>
+                  {salesParties.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Broker (दलाल)</label>
+                <select className="form-input" value={salesBroker} onChange={e => setSalesBroker(e.target.value)}>
+                  <option value="">All Brokers ({allBrokerNames.length})</option>
+                  {allBrokerNames.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>From Date</label>
+                <input type="date" className="form-input" value={salesFrom} onChange={e => setSalesFrom(e.target.value)} />
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>To Date</label>
+                <input type="date" className="form-input" value={salesTo} onChange={e => setSalesTo(e.target.value)} />
+              </div>
+            </div>
+
+            {(salesSearch || salesParty || salesBroker || salesFrom || salesTo) && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem' }}
+                  onClick={() => { setSalesSearch(''); setSalesParty(''); setSalesBroker(''); setSalesFrom(''); setSalesTo(''); }}
+                >
+                  <X size={13} /> Reset Filters
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Stats Cards */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: '1.25rem', gap: '0.75rem' }}>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-blue"><FileText size={20} /></div>
+              <div>
+                <p className="stat-label">Total Bills</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem' }}>{salesSummary.count}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon" style={{ background: '#ede9fe', color: '#7c3aed' }}><Boxes size={20} /></div>
+              <div>
+                <p className="stat-label">Total Pieces (थान)</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem', color: '#7c3aed' }}>{salesSummary.totalPcs.toLocaleString('en-IN')}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon" style={{ background: '#e0f2fe', color: '#0284c7' }}><Package size={20} /></div>
+              <div>
+                <p className="stat-label">Total Meters</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem', color: '#0284c7' }}>{salesSummary.totalMeters.toFixed(2)}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-green"><TrendingUp size={20} /></div>
+              <div>
+                <p className="stat-label">Total Sales (₹)</p>
+                <h3 className="stat-value stat-value-green" style={{ fontSize: '1.4rem' }}>{formatCurrency(salesSummary.totalSales, 'INR')}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-purple"><BarChart3 size={20} /></div>
+              <div>
+                <p className="stat-label">Total GST (₹)</p>
+                <h3 className="stat-value stat-value-purple" style={{ fontSize: '1.4rem' }}>{formatCurrency(salesSummary.totalTax, 'INR')}</h3>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="glass-panel" style={{ padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>
+                Sales Register ({filteredSalesBills.length} Invoices)
+              </h3>
+              <TableExport
+                title="Sales Report"
+                filename={`Sales-Report-${activeFY || 'All'}`}
+                subtitle={[businessName, activeFY ? `FY ${activeFY}` : '', salesParty ? `Party: ${salesParty}` : '', salesBroker ? `Broker: ${salesBroker}` : ''].filter(Boolean).join(', ')}
+                headers={['Date', 'Bill No', 'Party Name', 'Broker', 'Items / Lots', 'Pieces (थान)', 'Meters', 'Taxable (₹)', 'GST (₹)', 'Total (₹)', 'Status']}
+                rows={filteredSalesBills.map(b => {
+                  let bPcs = 0;
+                  let bMtr = 0;
+                  const itemDescs = (b.data?.items || []).map(it => {
+                    bPcs += Number(it.pcs) || 0;
+                    bMtr += (it.unit === 'Mtr' || it.pcs ? Number(it.quantity) || 0 : 0);
+                    return [it.name, it.lotNo ? `Lot: ${it.lotNo}` : ''].filter(Boolean).join(' ');
+                  }).join('; ');
+                  const taxable = (Number(b.totalAmount) || 0) - (Number(b.totalTaxAmount) || 0);
+                  return [
+                    b.invoiceDate || '',
+                    b.invoiceNumber || '',
+                    b.clientName || '',
+                    b.data?.details?.brokerName || '—',
+                    itemDescs || '—',
+                    bPcs || '',
+                    bMtr ? bMtr.toFixed(2) : '',
+                    taxable.toFixed(2),
+                    (Number(b.totalTaxAmount) || 0).toFixed(2),
+                    (Number(b.totalAmount) || 0).toFixed(2),
+                    b.status || 'unpaid',
+                  ];
+                })}
+              />
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Bill No</th>
+                    <th>Party Name</th>
+                    <th>Broker</th>
+                    <th>Items / Lots</th>
+                    <th style={{ textAlign: 'right' }}>Pcs (थान)</th>
+                    <th style={{ textAlign: 'right' }}>Meters</th>
+                    <th style={{ textAlign: 'right' }}>Taxable</th>
+                    <th style={{ textAlign: 'right' }}>GST</th>
+                    <th style={{ textAlign: 'right' }}>Total (₹)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSalesBills.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                        No sales records found matching the filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSalesBills.map(b => {
+                      let bPcs = 0;
+                      let bMtr = 0;
+                      (b.data?.items || []).forEach(it => {
+                        bPcs += Number(it.pcs) || 0;
+                        bMtr += (it.unit === 'Mtr' || it.pcs ? Number(it.quantity) || 0 : 0);
+                      });
+                      const taxable = (Number(b.totalAmount) || 0) - (Number(b.totalTaxAmount) || 0);
+                      return (
+                        <tr key={b.id || b.invoiceNumber}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{b.invoiceDate || '—'}</td>
+                          <td className="font-semibold text-primary">{b.invoiceNumber}</td>
+                          <td className="font-medium">{b.clientName}</td>
+                          <td style={{ color: b.data?.details?.brokerName ? '#4338ca' : 'var(--text-muted)' }}>
+                            {b.data?.details?.brokerName || '—'}
+                          </td>
+                          <td style={{ fontSize: '0.85rem', maxWidth: '200px' }}>
+                            {(b.data?.items || []).map((it, idx) => (
+                              <div key={idx} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {it.name} {it.lotNo ? <span style={{ color: '#0369a1', fontSize: '0.75rem' }}>(Lot: {it.lotNo})</span> : null}
+                              </div>
+                            ))}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: '#7c3aed' }}>{bPcs || '—'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: '#0284c7' }}>{bMtr ? bMtr.toFixed(2) : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(taxable, 'INR')}</td>
+                          <td style={{ textAlign: 'right', color: '#9333ea' }}>{formatCurrency(b.totalTaxAmount || 0, 'INR')}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: '#059669' }}>{formatCurrency(b.totalAmount || 0, 'INR')}</td>
+                          <td>
+                            <span className={`status-badge status-${b.status || 'unpaid'}`} style={{ textTransform: 'capitalize' }}>
+                              {b.status || 'unpaid'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {filteredSalesBills.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg-subtle, #f8fafc)', fontWeight: 700, borderTop: '2px solid var(--border-color)' }}>
+                      <td colSpan={5}>Total ({filteredSalesBills.length} Bills)</td>
+                      <td style={{ textAlign: 'right', color: '#7c3aed' }}>{salesSummary.totalPcs}</td>
+                      <td style={{ textAlign: 'right', color: '#0284c7' }}>{salesSummary.totalMeters.toFixed(2)}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(salesSummary.totalSales - salesSummary.totalTax, 'INR')}</td>
+                      <td style={{ textAlign: 'right', color: '#9333ea' }}>{formatCurrency(salesSummary.totalTax, 'INR')}</td>
+                      <td style={{ textAlign: 'right', color: '#059669' }}>{formatCurrency(salesSummary.totalSales, 'INR')}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PURCHASE REPORT TAB */}
+      {activeTab === 'purchases' && (
+        <div>
+          {/* Filters Bar */}
+          <div className="glass-panel" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', alignItems: 'flex-end' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Search (खोजें)</label>
+                <div style={{ position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ paddingLeft: '2rem' }}
+                    placeholder="Bill, Supplier, Broker..."
+                    value={purchaseSearch}
+                    onChange={e => setPurchaseSearch(e.target.value)}
+                  />
+                  {purchaseSearch && (
+                    <button onClick={() => setPurchaseSearch('')} style={{ position: 'absolute', right: 8, top: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Supplier / Vendor</label>
+                <select className="form-input" value={purchaseParty} onChange={e => setPurchaseParty(e.target.value)}>
+                  <option value="">All Suppliers ({purchaseSuppliers.length})</option>
+                  {purchaseSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Broker (दलाल)</label>
+                <select className="form-input" value={purchaseBroker} onChange={e => setPurchaseBroker(e.target.value)}>
+                  <option value="">All Brokers ({allBrokerNames.length})</option>
+                  {allBrokerNames.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>From Date</label>
+                <input type="date" className="form-input" value={purchaseFrom} onChange={e => setPurchaseFrom(e.target.value)} />
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>To Date</label>
+                <input type="date" className="form-input" value={purchaseTo} onChange={e => setPurchaseTo(e.target.value)} />
+              </div>
+            </div>
+
+            {(purchaseSearch || purchaseParty || purchaseBroker || purchaseFrom || purchaseTo) && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem' }}
+                  onClick={() => { setPurchaseSearch(''); setPurchaseParty(''); setPurchaseBroker(''); setPurchaseFrom(''); setPurchaseTo(''); }}
+                >
+                  <X size={13} /> Reset Filters
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Stats Cards */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: '1.25rem', gap: '0.75rem' }}>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-purple"><ShoppingCart size={20} /></div>
+              <div>
+                <p className="stat-label">Purchase Bills</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem' }}>{purchaseSummary.count}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-blue"><Wallet size={20} /></div>
+              <div>
+                <p className="stat-label">Total Purchases (₹)</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem', color: '#1e40af' }}>{formatCurrency(purchaseSummary.totalAmount, 'INR')}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-green"><TrendingDown size={20} /></div>
+              <div>
+                <p className="stat-label">Total ITC / GST (₹)</p>
+                <h3 className="stat-value stat-value-green" style={{ fontSize: '1.4rem' }}>{formatCurrency(purchaseSummary.totalTax, 'INR')}</h3>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="glass-panel" style={{ padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>
+                Purchase Register ({filteredPurchaseList.length} Bills)
+              </h3>
+              <TableExport
+                title="Purchase Report"
+                filename={`Purchase-Report-${activeFY || 'All'}`}
+                subtitle={[businessName, activeFY ? `FY ${activeFY}` : ''].filter(Boolean).join(', ')}
+                headers={['Date', 'Bill No', 'Supplier Name', 'Broker', 'Taxable (₹)', 'GST (₹)', 'Total Amount (₹)']}
+                rows={filteredPurchaseList.map(p => {
+                  const amt = Number(p.totalAmount || p.amount) || 0;
+                  const tax = Number(p.taxAmount || p.gstAmount || p.totalTaxAmount) || 0;
+                  return [
+                    p.billDate || p.date || '',
+                    p.billNumber || p.id || '',
+                    p.vendorName || p.supplierName || p.sellerName || '',
+                    p.brokerName || '—',
+                    (amt - tax).toFixed(2),
+                    tax.toFixed(2),
+                    amt.toFixed(2),
+                  ];
+                })}
+              />
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Bill No</th>
+                    <th>Supplier / Vendor</th>
+                    <th>Broker</th>
+                    <th style={{ textAlign: 'right' }}>Taxable</th>
+                    <th style={{ textAlign: 'right' }}>GST</th>
+                    <th style={{ textAlign: 'right' }}>Total (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPurchaseList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                        No purchase records found matching the filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPurchaseList.map((p, idx) => {
+                      const amt = Number(p.totalAmount || p.amount) || 0;
+                      const tax = Number(p.taxAmount || p.gstAmount || p.totalTaxAmount) || 0;
+                      return (
+                        <tr key={p.id || idx}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{p.billDate || p.date || '—'}</td>
+                          <td className="font-semibold text-primary">{p.billNumber || p.id || '—'}</td>
+                          <td className="font-medium">{p.vendorName || p.supplierName || p.sellerName || '—'}</td>
+                          <td style={{ color: p.brokerName ? '#4338ca' : 'var(--text-muted)' }}>{p.brokerName || '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(amt - tax, 'INR')}</td>
+                          <td style={{ textAlign: 'right', color: '#9333ea' }}>{formatCurrency(tax, 'INR')}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: '#1e40af' }}>{formatCurrency(amt, 'INR')}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {filteredPurchaseList.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg-subtle, #f8fafc)', fontWeight: 700, borderTop: '2px solid var(--border-color)' }}>
+                      <td colSpan={4}>Total ({filteredPurchaseList.length} Bills)</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(purchaseSummary.totalAmount - purchaseSummary.totalTax, 'INR')}</td>
+                      <td style={{ textAlign: 'right', color: '#9333ea' }}>{formatCurrency(purchaseSummary.totalTax, 'INR')}</td>
+                      <td style={{ textAlign: 'right', color: '#1e40af' }}>{formatCurrency(purchaseSummary.totalAmount, 'INR')}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BROKER REPORT TAB */}
+      {activeTab === 'brokers' && (
+        <div>
+          {/* Filters Bar */}
+          <div className="glass-panel" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+            <div style={{ maxWidth: 360 }}>
+              <label className="form-label" style={{ fontSize: '0.8rem' }}>Search Broker (दलाल खोजें)</label>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ paddingLeft: '2rem' }}
+                  placeholder="Broker name or phone..."
+                  value={brokerSearch}
+                  onChange={e => setBrokerSearch(e.target.value)}
+                />
+                {brokerSearch && (
+                  <button onClick={() => setBrokerSearch('')} style={{ position: 'absolute', right: 8, top: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: '1.25rem', gap: '0.75rem' }}>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-blue"><UserCheck size={20} /></div>
+              <div>
+                <p className="stat-label">Total Brokers</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem' }}>{brokerReportData.length}</h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon" style={{ background: '#ede9fe', color: '#7c3aed' }}><Boxes size={20} /></div>
+              <div>
+                <p className="stat-label">Total Pieces (थान)</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem', color: '#7c3aed' }}>
+                  {brokerReportData.reduce((s, b) => s + b.totalPcs, 0).toLocaleString('en-IN')}
+                </h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon" style={{ background: '#e0f2fe', color: '#0284c7' }}><Package size={20} /></div>
+              <div>
+                <p className="stat-label">Total Meters</p>
+                <h3 className="stat-value" style={{ fontSize: '1.4rem', color: '#0284c7' }}>
+                  {brokerReportData.reduce((s, b) => s + b.totalMeters, 0).toFixed(2)}
+                </h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-green"><TrendingUp size={20} /></div>
+              <div>
+                <p className="stat-label">Total Sales (₹)</p>
+                <h3 className="stat-value stat-value-green" style={{ fontSize: '1.4rem' }}>
+                  {formatCurrency(brokerReportData.reduce((s, b) => s + b.totalAmount, 0), 'INR')}
+                </h3>
+              </div>
+            </div>
+            <div className="stat-card" style={{ padding: '1rem' }}>
+              <div className="stat-icon stat-icon-purple"><Wallet size={20} /></div>
+              <div>
+                <p className="stat-label">Est. Brokerage @ 1%</p>
+                <h3 className="stat-value stat-value-purple" style={{ fontSize: '1.4rem' }}>
+                  {formatCurrency(brokerReportData.reduce((s, b) => s + b.totalAmount, 0) * 0.01, 'INR')}
+                </h3>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="glass-panel" style={{ padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>
+                Broker Wise Performance Summary
+              </h3>
+              <TableExport
+                title="Broker Report"
+                filename={`Broker-Report-${activeFY || 'All'}`}
+                subtitle={[businessName, activeFY ? `FY ${activeFY}` : ''].filter(Boolean).join(', ')}
+                headers={['Broker Name', 'Contact Phone', 'Total Bills', 'Total Pieces (थान)', 'Total Meters', 'Total Sales (₹)', 'Est. Brokerage @1% (₹)']}
+                rows={brokerReportData.map(b => [
+                  b.name,
+                  b.phone || '—',
+                  b.billCount,
+                  b.totalPcs,
+                  b.totalMeters.toFixed(2),
+                  b.totalAmount.toFixed(2),
+                  (b.totalAmount * 0.01).toFixed(2),
+                ])}
+              />
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Broker Name</th>
+                    <th>Contact Phone</th>
+                    <th style={{ textAlign: 'right' }}>Total Bills</th>
+                    <th style={{ textAlign: 'right' }}>Total Pieces (थान)</th>
+                    <th style={{ textAlign: 'right' }}>Total Meters</th>
+                    <th style={{ textAlign: 'right' }}>Total Sales (₹)</th>
+                    <th style={{ textAlign: 'right' }}>Est. Brokerage (1%)</th>
+                    <th style={{ textAlign: 'center' }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brokerReportData.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                        No broker data found.
+                      </td>
+                    </tr>
+                  ) : (
+                    brokerReportData.map((b, idx) => (
+                      <tr key={idx}>
+                        <td className="font-semibold text-primary">{b.name}</td>
+                        <td className="text-muted">{b.phone || '—'}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{b.billCount}</td>
+                        <td style={{ textAlign: 'right', color: '#7c3aed', fontWeight: 600 }}>{b.totalPcs || '—'}</td>
+                        <td style={{ textAlign: 'right', color: '#0284c7', fontWeight: 600 }}>{b.totalMeters ? b.totalMeters.toFixed(2) : '—'}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#059669' }}>{formatCurrency(b.totalAmount, 'INR')}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600, color: '#9333ea' }}>{formatCurrency(b.totalAmount * 0.01, 'INR')}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          {b.billCount > 0 ? (
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '0.25rem 0.6rem', fontSize: '0.78rem' }}
+                              onClick={() => setSelectedBroker(b)}
+                            >
+                              View ({b.billCount})
+                            </button>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Broker Bills Modal */}
+          {selectedBroker && (
+            <div className="modal-backdrop" onClick={() => setSelectedBroker(null)}>
+              <div className="modal" style={{ maxWidth: '800px', width: '95%' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3 style={{ margin: 0 }}>
+                    Invoices for {selectedBroker.name} ({selectedBroker.billCount} Bills)
+                  </h3>
+                  <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem' }} onClick={() => setSelectedBroker(null)}>
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Bill No</th>
+                        <th>Party</th>
+                        <th style={{ textAlign: 'right' }}>Pieces</th>
+                        <th style={{ textAlign: 'right' }}>Meters</th>
+                        <th style={{ textAlign: 'right' }}>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedBroker.bills.map((b, i) => {
+                        let bPcs = 0;
+                        let bMtr = 0;
+                        (b.data?.items || []).forEach(it => {
+                          bPcs += Number(it.pcs) || 0;
+                          bMtr += (it.unit === 'Mtr' || it.pcs ? Number(it.quantity) || 0 : 0);
+                        });
+                        return (
+                          <tr key={i}>
+                            <td>{b.invoiceDate}</td>
+                            <td className="font-semibold text-primary">{b.invoiceNumber}</td>
+                            <td>{b.clientName}</td>
+                            <td style={{ textAlign: 'right', color: '#7c3aed' }}>{bPcs || '—'}</td>
+                            <td style={{ textAlign: 'right', color: '#0284c7' }}>{bMtr ? bMtr.toFixed(2) : '—'}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 600, color: '#059669' }}>{formatCurrency(b.totalAmount || 0, 'INR')}</td>
+                            <td>
+                              <span className={`status-badge status-${b.status || 'unpaid'}`} style={{ textTransform: 'capitalize' }}>
+                                {b.status || 'unpaid'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                    Total Sales: <strong style={{ color: '#059669' }}>{formatCurrency(selectedBroker.totalAmount, 'INR')}</strong> | Brokerage @ 1%: <strong style={{ color: '#9333ea' }}>{formatCurrency(selectedBroker.totalAmount * 0.01, 'INR')}</strong>
+                  </div>
+                  <button className="btn btn-secondary" onClick={() => setSelectedBroker(null)}>Close</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'pl' && (

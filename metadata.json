@@ -1,0 +1,8 @@
+{
+  "name": "Free GST Billing Software",
+  "description": "Free, open-source GST invoice generator and billing software with GSTR-1, GSTR-3B, GSTR-2B reconciliation, and inventory tracking.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

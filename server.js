@@ -26,8 +26,9 @@ const DATA_DIR = path.join(__dirname, 'data');
 // by any common software we could find. The persisted `data/port.txt` always
 // wins over this default — so a single user who genuinely needs 47371 for
 // something else can edit that file and we'll respect it forever.
-const DEFAULT_PORT = 47371;
+const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 3000;
 const PORT_FILE = path.join(__dirname, 'data', 'port.txt');
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Read the persisted port (if any) — written once on first successful start
 // and every time we get bumped off our preferred port by EADDRINUSE.
@@ -38,8 +39,8 @@ const persistedPort = (() => {
     return (isFinite(n) && n >= 1024 && n <= 65535) ? n : null;
   } catch { return null; }
 })();
-const STARTING_PORT = persistedPort || DEFAULT_PORT;
-const MAX_PORT_SCAN = 50; // 47371 → 47420 is enough headroom for any conceivable collision
+const STARTING_PORT = process.env.PORT ? (parseInt(process.env.PORT, 10) || 3000) : (persistedPort || DEFAULT_PORT);
+const MAX_PORT_SCAN = 50;
 
 const app = express();
 
@@ -54,8 +55,13 @@ const app = express();
 // also localhost.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
+  const host = req.headers.host;
+  const isSameHost = origin && host && (origin === `http://${host}` || origin === `https://${host}`);
+  const isAllowedDomain = origin && /(\.run\.app|\.google\.com|\.web\.app|\.firebaseapp\.com)(:\d+)?$/i.test(origin);
   const allow =
     !origin ||
+    isSameHost ||
+    isAllowedDomain ||
     /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
     /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
     /^https?:\/\/\[::1\](:\d+)?$/i.test(origin);
@@ -66,7 +72,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   }
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
@@ -90,7 +96,7 @@ app.use((req, res, next) => {
 });
 
 // Ensure data directory and sub-directories exist
-const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases'];
+const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases', 'challans', 'brokers'];
 for (const dir of DIRS) {
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -532,6 +538,52 @@ app.delete('/api/profiles/:id', (req, res) => {
 });
 
 // ========================
+// DELIVERY CHALLANS (Textile Taka & Meter Challans)
+// ========================
+app.get('/api/challans', (req, res) => {
+  const challans = readAllFromDir('challans');
+  challans.sort((a, b) => new Date(b.challanDate || b.date) - new Date(a.challanDate || a.date));
+  res.json(challans);
+});
+
+app.post('/api/challans', (req, res) => {
+  const challan = req.body;
+  if (!challan.id) challan.id = 'ch_' + (challan.challanNumber ? safeFileName(challan.challanNumber) : Date.now());
+  const filePath = path.join(DATA_DIR, 'challans', safeFileName(challan.id) + '.json');
+  writeJSON(filePath, challan);
+  res.json({ success: true, id: challan.id });
+});
+
+app.delete('/api/challans/:id', (req, res) => {
+  const filePath = path.join(DATA_DIR, 'challans', safeFileName(req.params.id) + '.json');
+  deleteFile(filePath);
+  res.json({ success: true });
+});
+
+// ========================
+// BROKERS (दलाल / एजेंट)
+// ========================
+app.get('/api/brokers', (req, res) => {
+  const brokers = readAllFromDir('brokers');
+  brokers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  res.json(brokers);
+});
+
+app.post('/api/brokers', (req, res) => {
+  const broker = req.body;
+  if (!broker.id) broker.id = 'brk_' + Date.now();
+  const filePath = path.join(DATA_DIR, 'brokers', safeFileName(broker.id) + '.json');
+  writeJSON(filePath, broker);
+  res.json({ success: true, id: broker.id });
+});
+
+app.delete('/api/brokers/:id', (req, res) => {
+  const filePath = path.join(DATA_DIR, 'brokers', safeFileName(req.params.id) + '.json');
+  deleteFile(filePath);
+  res.json({ success: true });
+});
+
+// ========================
 // META (counters, etc.)
 // ========================
 const META_PATH = path.join(DATA_DIR, 'meta.json');
@@ -682,6 +734,8 @@ app.get('/api/export', (req, res) => {
     receipts: readAllFromDir('receipts'),
     profiles: readAllFromDir('profiles'),
     purchases: readAllFromDir('purchases'),
+    challans: readAllFromDir('challans'),
+    brokers: readAllFromDir('brokers'),
     // v1.10.77 - never the PIN hash: a backup file can travel (email, Drive).
     meta: withoutLock(readJSON(META_PATH, {})),
     exportedAt: new Date().toISOString(),
@@ -713,6 +767,8 @@ app.post('/api/import', (req, res) => {
     receiptCount: 0, receiptSkipped: 0,
     profileCount: 0, profileSkipped: 0,
     purchaseCount: 0, purchaseSkipped: 0,
+    challanCount: 0, challanSkipped: 0,
+    brokerCount: 0, brokerSkipped: 0,
   };
 
   // Helper: upsert one entity to a directory, honouring the overwrite flag.
@@ -739,6 +795,8 @@ app.post('/api/import', (req, res) => {
   (data.receipts || []).forEach(r => upsertOne('receipts', r, 'receiptCount', 'receiptSkipped'));
   (data.profiles || []).forEach(p => upsertOne('profiles', p, 'profileCount', 'profileSkipped'));
   (data.purchases || []).forEach(p => upsertOne('purchases', p, 'purchaseCount', 'purchaseSkipped'));
+  (data.challans || []).forEach(c => upsertOne('challans', c, 'challanCount', 'challanSkipped'));
+  (data.brokers || []).forEach(b => upsertOne('brokers', b, 'brokerCount', 'brokerSkipped'));
 
   // meta.json — same gating. Previously always overwrote → counters could
   // regress below existing bill numbers → collision loop on next save.
@@ -1261,7 +1319,7 @@ app.post('/api/control-panel/launch-script', async (req, res) => {
 // flips to serving the app the moment dist/ appears.
 const distPath = path.join(__dirname, 'dist');
 const indexPath = path.join(distPath, 'index.html');
-app.use(express.static(distPath, { fallthrough: true })); // fallthrough = ok if dist doesn't exist
+app.use(express.static(distPath, { fallthrough: true }));
 
 // ============================================================
 // v1.9.5 — Automatic daily backup + retention (keep last 30 days).
@@ -1768,24 +1826,19 @@ process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
 // every byte stays on the user's machine, which the privacy promise depends on.
 let activeServer = null;
 function startServer(port) {
-  const server = app.listen(port, '127.0.0.1', () => {
+  const host = HOST;
+  const server = app.listen(port, host, () => {
     activeServer = server;
-    // Persist the chosen port — the .bat launcher reads this for the browser URL.
-    // Writing on EVERY successful boot means: if our preferred 47371 was busy and
-    // we landed on 47372 instead, next launch tries 47372 first (cuts collision
-    // scans in half on repeated reboots of whatever was holding 47371).
+    // Persist the chosen port — the launcher reads this for the browser URL.
     try { fs.writeFileSync(PORT_FILE, String(port), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  Free GST Billing Software running at http://localhost:${port}`);
+    console.log(`\n  Free GST Billing Software running at http://${host}:${port}`);
     console.log(`  Data stored in: ${DATA_DIR}\n`);
   });
   server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE' && port < STARTING_PORT + MAX_PORT_SCAN) {
+    if (err.code === 'EADDRINUSE' && !process.env.PORT && port < STARTING_PORT + MAX_PORT_SCAN) {
       console.log(`  Port ${port} is busy, trying ${port + 1}...`);
       startServer(port + 1);
-    } else if (err.code === 'EADDRINUSE') {
-      // We've exhausted the scan range. Tell the OS to pick anything free — at
-      // this point the user has 50+ apps fighting for the 47371-47421 range,
-      // which we treat as "do whatever works" rather than failing to start.
+    } else if (err.code === 'EADDRINUSE' && !process.env.PORT) {
       console.warn(`  Scanned ${MAX_PORT_SCAN} ports from ${STARTING_PORT} — letting OS assign a free one.`);
       startServer(0);
     } else {

@@ -201,7 +201,7 @@ function ReceiptModal({ target, onClose }) {
   );
 }
 
-export default function Dashboard({ onNew, onEdit, onPrint, onDuplicate, onConvert, onOpenProducts, onOpenSettings, onOpenGuide, onOpenSupport, activeProfile }) {
+export default function Dashboard({ onNew, onEdit, onPrint, onDuplicate, onConvert, onOpenProducts, onOpenSettings, onOpenGuide, onOpenSupport, activeProfile, activeFY }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -261,7 +261,10 @@ export default function Dashboard({ onNew, onEdit, onPrint, onDuplicate, onConve
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [fyFilter, setFyFilter] = useState('all');
+  const [fyFilter, setFyFilter] = useState(activeFY || 'all');
+  useEffect(() => {
+    if (activeFY) setFyFilter(activeFY);
+  }, [activeFY]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   // Bulk-selection state. Stores a Set of bill IDs (not the bills themselves)

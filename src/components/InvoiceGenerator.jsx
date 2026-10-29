@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff, Layers, X, UserCheck } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { saveBill, deleteBill, applyStockChanges, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllRecurring, getAllBills } from '../store';
+import { saveBill, deleteBill, applyStockChanges, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllRecurring, getAllBills, getAllBrokers, saveBroker, getAllChallans, saveChallan } from '../store';
 import { INVOICE_TYPES, businessKeyOf, GST_DOC_NUMBER, COUNTRIES, printedSubtotal, deliveryChargeLine, stockEffect, appliedStock, stockDelta, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, REMOVED_TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, clientYearToDate, htmlHasText, ORDER_DETAIL_FIELDS, invoiceOptionOn, DEFAULT_DECLARATION, decodeGstin, safePageBoundaries, localToday, toLocalIsoDate, parseLocalDate, paymentStatusFor } from '../utils';
+import { handleEnterKeyNavigation } from '../utils/enterKeyNav';
 import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction, promptAction } from './ConfirmModal';
@@ -347,8 +348,21 @@ const LineItem = memo(function LineItem({
           })()}
         </div>
       )}
-      <div className="line-item-field" style={{ flex: 0.7 }}>
-        <label className="form-label">Qty</label>
+      <div className="line-item-field" style={{ flex: 0.8, minWidth: 70 }}>
+        <label className="form-label">Lot No</label>
+        <input type="text" className="form-input" value={item.lotNo || ''}
+          placeholder="Lot #"
+          onChange={(e) => onFieldChange(item.id, 'lotNo', e.target.value)} />
+      </div>
+      <div className="line-item-field" style={{ flex: 0.7, minWidth: 65 }}>
+        <label className="form-label">Pcs (थान)</label>
+        <input type="number" min="0" step="1" className="form-input" value={item.pcs ?? ''}
+          placeholder="Pcs"
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => onFieldChange(item.id, 'pcs', clampNonNeg(e.target.value))} />
+      </div>
+      <div className="line-item-field" style={{ flex: 0.8, minWidth: 70 }}>
+        <label className="form-label">{item.unit === 'Mtr' ? 'Meters' : 'Qty'}</label>
         <input type="number" min="0" step="any" className="form-input" value={item.quantity}
           onFocus={(e) => e.target.select()}
           onChange={(e) => onFieldChange(item.id, 'quantity', clampNonNeg(e.target.value))} />
@@ -543,7 +557,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // email/phone/isSEZ must be part of initial state — otherwise the SEZ flag
   // set inside ClientModal is silently discarded on save, and reopening the
   // bill can never restore contact fields even if the saved client has them.
-  const [client, setClient] = useState(draft?.client || { name: '', address: '', city: '', pin: '', state: '', gstin: '', country: '', email: '', phone: '', isSEZ: false });
+  const [client, setClient] = useState(draft?.client || editingBill?.data?.client || { name: editingBill?.clientName || '', address: '', city: '', pin: '', state: '', gstin: '', country: '', email: '', phone: '', isSEZ: false });
   // v1.9.1 — preview zoom (session-only). Reads from printSettings for the
   // initial value so the user's preference carries across bill switches.
   // v1.10.33 — Was READ-ONLY: the initial-load line pulled from
@@ -599,13 +613,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     try { localStorage.setItem('fgsb_previewCollapsed', previewCollapsed ? '1' : '0'); } catch { /* sandboxed */ }
   }, [previewCollapsed]);
   const [details, setDetails] = useState(draft?.details || {
-    invoiceNumber: '',
+    invoiceNumber: editingBill?.data?.details?.invoiceNumber || editingBill?.invoiceNumber || '',
+    challanNumber: draft?.details?.challanNumber || editingBill?.data?.details?.challanNumber || '',
+    brokerName: draft?.details?.brokerName || editingBill?.data?.details?.brokerName || '',
     // Local date: toISOString() is UTC, so between midnight and 05:30 in
     // India a new invoice was dated yesterday.
-    invoiceDate: localToday(),
-    dueDate: '',
-    placeOfSupply: '',
-    originalInvoiceRef: '',
+    invoiceDate: editingBill?.data?.details?.invoiceDate || localToday(),
+    dueDate: editingBill?.data?.details?.dueDate || '',
+    placeOfSupply: editingBill?.data?.details?.placeOfSupply || '',
+    originalInvoiceRef: editingBill?.data?.details?.originalInvoiceRef || '',
     // v1.10.11 — Ship To fields. Default: same as billing (no extra
     // fields shown). Untick to type a separate delivery address.
     shipToSameAsBilling: true,
@@ -615,7 +631,67 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     shippingState: '',
   });
 
-  const [items, setItems] = useState(draft?.items || [
+  const [brokers, setBrokers] = useState([]);
+  const [showBrokerModal, setShowBrokerModal] = useState(false);
+  const [newBrokerName, setNewBrokerName] = useState('');
+  const [newBrokerPhone, setNewBrokerPhone] = useState('');
+  const [showChallanModal, setShowChallanModal] = useState(false);
+  const [availableChallans, setAvailableChallans] = useState([]);
+  const formContainerRef = useRef(null);
+
+  useEffect(() => {
+    getAllBrokers().then(b => setBrokers(b || [])).catch(() => {});
+  }, []);
+
+  const openChallanImportModal = async () => {
+    try {
+      const allCh = await getAllChallans();
+      setAvailableChallans(allCh || []);
+      setShowChallanModal(true);
+    } catch {
+      toast('Failed to load delivery challans', 'error');
+    }
+  };
+
+  const handleImportChallan = (ch) => {
+    setDetails(prev => ({
+      ...prev,
+      invoiceNumber: ch.challanNumber || prev.invoiceNumber,
+      challanNumber: ch.challanNumber || '',
+      brokerName: ch.brokerName || prev.brokerName,
+      transport: ch.transportName || prev.transport || '',
+      vehicleNo: ch.vehicleNo || prev.vehicleNo || '',
+      placeOfSupply: ch.clientState || prev.placeOfSupply || '',
+    }));
+    if (ch.clientName) {
+      setClient(prev => ({
+        ...prev,
+        name: ch.clientName,
+        address: ch.clientAddress || '',
+        gstin: ch.clientGstin || '',
+        phone: ch.clientPhone || '',
+        state: ch.clientState || '',
+      }));
+    }
+    if (ch.itemName || ch.totalMeters) {
+      setItems([{
+        id: Date.now().toString(),
+        name: ch.itemName || 'Textile Fabric',
+        lotNo: ch.lotNo || '',
+        pcs: Number(ch.totalTaka) || 0,
+        quantity: Number(ch.totalMeters) || 0,
+        unit: 'Mtr',
+        rate: Number(ch.ratePerMeter) || 0,
+        taxPercent: 5,
+        cessPercent: 0,
+        discount: 0,
+      }]);
+    }
+    setShowChallanModal(false);
+    toast(`Imported from Delivery Challan #${ch.challanNumber}`, 'success');
+  };
+
+  const [items, setItems] = useState(draft?.items || editingBill?.data?.items || [
     { id: Date.now().toString(), name: '', hsn: '', quantity: 1, unit: 'Nos', rate: 0, discount: 0, taxPercent: 18, cessPercent: 0 }
   ]);
   // v1.10.24 — Client credit balance state. Loaded once on mount + refreshed
@@ -1895,6 +1971,17 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           }
         }
       }
+      // Update linked challan status if present
+      const targetChallanNo = details.challanNumber || (details.invoiceNumber === bill.invoiceNumber ? details.invoiceNumber : null);
+      if (targetChallanNo) {
+        getAllChallans().then(allCh => {
+          const match = (allCh || []).find(c => c.challanNumber === targetChallanNo);
+          if (match && match.status !== 'billed') {
+            saveChallan({ ...match, status: 'billed', billNumber: savedNumber || bill.invoiceNumber }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+
       // Mark that the invoice has been persisted at least once — subsequent
       // saves (auto-save, Save & Leave, Save & Download) can safely overwrite.
       hasBeenSaved.current = true;
@@ -3407,6 +3494,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
             }>
             <Printer size={18} /> Print
           </button>
+          <button className="btn btn-secondary" onClick={openChallanImportModal} disabled={saving}
+            title="Import pending Delivery Challan (चालान से बिल बनाएं)" style={{ borderColor: 'var(--primary)', color: 'var(--primary)', fontWeight: 600 }}>
+            <Layers size={18} /> From Challan
+          </button>
           <button className="btn btn-secondary" onClick={shareWhatsApp} disabled={saving} style={{ background: '#25d366', color: '#fff', borderColor: '#25d366' }}>
             <MessageCircle size={18} /> WhatsApp
           </button>
@@ -3443,7 +3534,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       </div>
 
       <div className={`split-view ${previewCollapsed ? 'split-view-focus' : ''}`}>
-        <div className="editor-pane">
+        <div className="editor-pane" ref={formContainerRef} onKeyDown={(e) => handleEnterKeyNavigation(e, formContainerRef.current)}>
           {/* v1.10.67 (#66 item 6) — the "Billing From (Business Profile)"
               card was removed. The company picker at the top of the sidebar
               already sets which business an invoice belongs to; a second
@@ -4004,6 +4095,150 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           {/* Client Modal */}
           <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} />
 
+          {/* Challan Import Modal */}
+          {showChallanModal && (
+            <div className="modal-overlay" onClick={() => setShowChallanModal(false)}>
+              <div className="modal" style={{ maxWidth: '680px' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>
+                    Import From Delivery Challan (चालान से बिल बनाएं)
+                  </h3>
+                  <button type="button" className="icon-btn" onClick={() => setShowChallanModal(false)}>
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="modal-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                    Select a Delivery Challan to import. Bill Number and Challan Number will be synchronized, and all party, broker, pieces, and meters data will load automatically.
+                  </p>
+                  {availableChallans.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                      No delivery challans found. Create a challan from the "Delivery Challan" menu first.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {availableChallans.map(ch => (
+                        <div
+                          key={ch.id || ch.challanNumber}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '0.75rem 1rem',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 8,
+                            background: ch.status === 'billed' ? 'var(--bg-secondary)' : 'var(--bg-card)',
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <strong style={{ fontSize: '0.95rem' }}>Challan #{ch.challanNumber}</strong>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                fontWeight: 700,
+                                background: ch.status === 'billed' ? '#ecfdf5' : '#fffbeb',
+                                color: ch.status === 'billed' ? '#047857' : '#b45309',
+                              }}>
+                                {ch.status === 'billed' ? 'Already Billed' : 'Pending'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                              Party: <strong>{ch.clientName || 'Unknown'}</strong> &bull; Date: {ch.challanDate}
+                              {ch.brokerName && ` &bull; Broker: ${ch.brokerName}`}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', marginTop: 3 }}>
+                              Item: <strong>{ch.itemName || 'Fabric'}</strong> &bull; {ch.totalTaka || 0} Taka (थान) &bull; {ch.totalMeters || 0} Meters
+                              {ch.ratePerMeter && ` @ ₹${ch.ratePerMeter}/m`}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            onClick={() => handleImportChallan(ch)}
+                            style={{ padding: '0.4rem 0.8rem', fontSize: '0.82rem' }}
+                          >
+                            Import
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowChallanModal(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Broker Quick-Add Modal */}
+          {showBrokerModal && (
+            <div className="modal-overlay" onClick={() => setShowBrokerModal(false)}>
+              <div className="modal" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Add Broker (दलाल / एजेंट जोड़ें)</h3>
+                  <button type="button" className="icon-btn" onClick={() => setShowBrokerModal(false)}>
+                    <X size={18} />
+                  </button>
+                </div>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!newBrokerName.trim()) return;
+                  try {
+                    const b = { name: newBrokerName.trim(), phone: newBrokerPhone.trim() };
+                    await saveBroker(b);
+                    const updated = await getAllBrokers();
+                    setBrokers(updated || []);
+                    setDetails(prev => ({ ...prev, brokerName: b.name }));
+                    setShowBrokerModal(false);
+                    setNewBrokerName('');
+                    setNewBrokerPhone('');
+                    toast(`Broker "${b.name}" added`, 'success');
+                  } catch {
+                    toast('Failed to add broker', 'error');
+                  }
+                }}>
+                  <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                    <div>
+                      <label className="form-label">Broker Name *</label>
+                      <input
+                        type="text"
+                        required
+                        className="form-input"
+                        value={newBrokerName}
+                        onChange={e => setNewBrokerName(e.target.value)}
+                        placeholder="e.g. Ramesh Bhai"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Phone Number</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={newBrokerPhone}
+                        onChange={e => setNewBrokerPhone(e.target.value)}
+                        placeholder="9876543210"
+                      />
+                    </div>
+                  </div>
+                  <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowBrokerModal(false)}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="btn btn-primary">
+                      Save Broker
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* Client Details */}
           <div className="glass-panel p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
@@ -4226,6 +4461,43 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 <input type="date" className="form-input" value={details.dueDate}
                   onChange={(e) => setDetails({ ...details, dueDate: e.target.value })} />
               </div>
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Broker (दलाल / एजेंट)</span>
+                  <button type="button" onClick={() => setShowBrokerModal(true)} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+                    + Add Broker
+                  </button>
+                </label>
+                <select
+                  className="form-input"
+                  value={details.brokerName || ''}
+                  onChange={(e) => {
+                    if (e.target.value === '__NEW__') {
+                      setShowBrokerModal(true);
+                    } else {
+                      setDetails({ ...details, brokerName: e.target.value });
+                    }
+                  }}
+                >
+                  <option value="">Direct / None (कोई दलाल नहीं)</option>
+                  {brokers.map(b => (
+                    <option key={b.id || b.name} value={b.name}>{b.name}{b.phone ? ` (${b.phone})` : ''}</option>
+                  ))}
+                  <option value="__NEW__">➕ Add New Broker...</option>
+                </select>
+              </div>
+              {details.challanNumber && (
+                <div className="form-group">
+                  <label className="form-label">Linked Challan No (संबंधित चालान)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-input"
+                    style={{ background: 'var(--bg-secondary)', fontWeight: 700, color: 'var(--primary)' }}
+                    value={details.challanNumber}
+                  />
+                </div>
+              )}
               {invoiceOptions.showPlaceOfSupply && (() => {
                 const posOpts = getStatesForCountry(profile?.country);
                 return (
@@ -4388,6 +4660,32 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 </span>
               )}
             </div>
+
+            {/* Textile Summary: Total Pieces / Thaan & Meters */}
+            {(() => {
+              const totalPcs = items.reduce((s, it) => s + (Number(it.pcs) || 0), 0);
+              const totalMtrs = items.reduce((s, it) => s + (it.unit === 'Mtr' || it.pcs ? Number(it.quantity) || 0 : 0), 0);
+              if (totalPcs > 0 || totalMtrs > 0) {
+                return (
+                  <div style={{
+                    marginTop: '0.75rem',
+                    padding: '0.6rem 0.9rem',
+                    borderRadius: 8,
+                    background: 'rgba(30,64,175,0.06)',
+                    border: '1px solid rgba(30,64,175,0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1.5rem',
+                    fontSize: '0.86rem',
+                    fontWeight: 600,
+                  }}>
+                    {totalPcs > 0 && <span>Total Pieces (कुल थान): <strong style={{ color: 'var(--primary)' }}>{totalPcs}</strong></span>}
+                    {totalMtrs > 0 && <span>Total Meters (कुल मीटर): <strong style={{ color: 'var(--primary)' }}>{totalMtrs.toFixed(2)}</strong></span>}
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* v1.10.22 — invoice-level (whole-bill) discount. Sits below
                 the line items so it reads as "…and then take X off the

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, Heart } from 'lucide-react';
-import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients, runUpdateNow, getLockStatus } from './store';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, Heart, Layers, Calendar } from 'lucide-react';
+import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients, runUpdateNow, getLockStatus, getActiveFinancialYearSelection, setActiveFinancialYearSelection } from './store';
 import { isModuleEnabled, getUpcomingFilings, countsAsSales, localToday, toLocalIsoDate, DOCS_URL } from './utils';
+import { getIndianFinancialYear, getFinancialYearOptions } from './utils/companyContext';
 // v1.10.4 — Route-level lazy loading. Prior App.jsx synchronously
 // imported all 12 views (~15k LOC combined), so a first-paint on
 // Dashboard downloaded and parsed GSTReturns (1952), InvoiceGenerator
@@ -22,6 +23,7 @@ import SetupWizard from './components/SetupWizard';
 import ToastContainer, { toast } from './components/Toast';
 import ConfirmModalContainer from './components/ConfirmModal';
 import WelcomeGuide from './components/WelcomeGuide';
+const DeliveryChallan = lazy(() => import('./components/DeliveryChallan'));
 const SettingsView = lazy(() => import('./components/SettingsView'));
 const ClientsView = lazy(() => import('./components/ClientsView'));
 const InventoryView = lazy(() => import('./components/InventoryView'));
@@ -72,7 +74,7 @@ function App() {
       const params = new URLSearchParams(window.location.search);
       const v = params.get('view');
       // v1.10.74 - 'controlpanel' added so ?view=controlpanel deep links work too.
-      const valid = ['dashboard', 'new', 'clients', 'inventory', 'expenses', 'purchases', 'recurring', 'receipts', 'reports', 'filing', 'incometax', 'settings', 'controlpanel', 'support'];
+      const valid = ['dashboard', 'new', 'challans', 'clients', 'inventory', 'expenses', 'purchases', 'recurring', 'receipts', 'reports', 'filing', 'incometax', 'settings', 'controlpanel', 'support'];
       if (v && valid.includes(v)) {
         // Strip the query string so a refresh doesn't keep snapping back to
         // the shortcut target — only the *first* navigation honours it.
@@ -90,6 +92,21 @@ function App() {
       const saved = sessionStorage.getItem('gst_editingBill');
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
+  });
+
+  // Active Financial Year & Multi-Company scoping
+  const [activeFY, setActiveFY] = useState(() => {
+    return getActiveFinancialYearSelection() || getIndianFinancialYear();
+  });
+  const fyList = useMemo(() => getFinancialYearOptions(), []);
+  const handleFYChange = (fy) => {
+    setActiveFY(fy);
+    setActiveFinancialYearSelection(fy);
+  };
+
+  const [showNewCompanyModal, setShowNewCompanyModal] = useState(false);
+  const [newCompanyForm, setNewCompanyForm] = useState({
+    businessName: '', gstin: '', address: '', state: '', phone: '', email: ''
   });
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('freegstbill_theme') === 'dark';
@@ -419,6 +436,29 @@ function App() {
     setProfile(loaded);
   };
 
+  const handleCreateNewCompany = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    if (!newCompanyForm.businessName.trim()) {
+      toast('Company Name is required', 'warning');
+      return;
+    }
+    try {
+      const newProf = {
+        ...newCompanyForm,
+        id: 'prof_' + Date.now().toString(36),
+      };
+      await saveProfile(newProf);
+      const updated = await getAllProfiles();
+      setAllProfiles(updated);
+      setProfile(newProf);
+      setShowNewCompanyModal(false);
+      setNewCompanyForm({ businessName: '', gstin: '', address: '', state: '', phone: '', email: '' });
+      toast(`Company "${newProf.businessName}" created and active!`, 'success');
+    } catch {
+      toast('Failed to create company', 'error');
+    }
+  };
+
   // v1.10.66 (#64 item 1) — identifies the active business for the screens
   // keyed on it below. GSTIN first, the same rule belongsToProfile() uses to
   // decide which records a business owns; the name covers a business that has
@@ -509,6 +549,55 @@ function App() {
     setCurrentView('new');
   };
 
+  const handleConvertChallanToInvoice = (challan) => {
+    setEditorKey((k) => k + 1);
+    sessionStorage.removeItem('gst_invoiceDraft');
+    const invoiceBill = {
+      _isDuplicate: true,
+      _fromChallan: true,
+      id: challan.challanNumber || `INV-${Date.now()}`,
+      invoiceNumber: challan.challanNumber || '',
+      clientName: challan.clientName,
+      data: {
+        profile,
+        client: {
+          name: challan.clientName || '',
+          address: challan.clientAddress || '',
+          gstin: challan.clientGstin || '',
+          phone: challan.clientPhone || '',
+          state: challan.clientState || '',
+        },
+        details: {
+          invoiceNumber: challan.challanNumber || '',
+          challanNumber: challan.challanNumber || '',
+          invoiceDate: challan.challanDate || localToday(),
+          brokerName: challan.brokerName || '',
+          transport: challan.transportName || '',
+          vehicleNo: challan.vehicleNo || '',
+          placeOfSupply: challan.clientState || '',
+        },
+        items: [
+          {
+            id: Date.now().toString(),
+            name: challan.itemName || 'Textile / Fabric',
+            lotNo: challan.lotNo || '',
+            pcs: Number(challan.totalTaka) || 0,
+            quantity: Number(challan.totalMeters) || 0,
+            unit: 'Mtr',
+            rate: Number(challan.ratePerMeter) || 0,
+            taxPercent: 5,
+            cessPercent: 0,
+            discount: 0,
+          }
+        ],
+        invoiceType: 'tax-invoice',
+      }
+    };
+    setEditingBill(invoiceBill);
+    setCurrentView('new');
+    toast(`Challan #${challan.challanNumber} converted to Invoice #${challan.challanNumber}`, 'success');
+  };
+
   // Pull the user's module preferences once per render. Re-mount happens
   // when settings save, which triggers a re-render via the profile state.
   const enabledModules = getEnabledModules();
@@ -517,7 +606,7 @@ function App() {
   // If the user just disabled the module backing the current view, kick them to dashboard
   // so they don't land on an empty page after toggling.
   useEffect(() => {
-    const map = { new: 'invoicing', clients: 'clients', inventory: 'inventory', expenses: 'expenses', purchases: 'purchases', recurring: 'recurring', receipts: 'receipts', reports: 'reports', filing: 'gstReturns' };
+    const map = { new: 'invoicing', challans: 'invoicing', clients: 'clients', inventory: 'inventory', expenses: 'expenses', purchases: 'purchases', recurring: 'recurring', receipts: 'receipts', reports: 'reports', filing: 'gstReturns' };
     const moduleForView = map[currentView];
     if (moduleForView && !isModuleEnabled(moduleForView, enabledModules)) {
       setCurrentView('dashboard');
@@ -528,6 +617,7 @@ function App() {
   const navItems = [
     { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard' },
     { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing' },
+    { id: 'challans', icon: Layers, label: 'Delivery Challan (चालान)', module: 'invoicing' },
     { id: 'clients', icon: Users, label: 'Clients', module: 'clients' },
     { id: 'inventory', icon: Package, label: 'Products', module: 'inventory' },
     { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses' },
@@ -991,9 +1081,183 @@ function App() {
         </div>
       )}
       <div className="main-content">
+        {/* Multi-Company & Financial Year Top Switcher Banner */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+          padding: '0.65rem 1rem',
+          background: 'var(--bg-card, #ffffff)',
+          borderBottom: '1px solid var(--border-color, #e2e8f0)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Building2 size={16} style={{ color: 'var(--primary, #1e40af)' }} />
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, margin: 0, color: 'var(--text-muted)' }}>Company:</label>
+              <select
+                className="form-input"
+                style={{ padding: '0.3rem 0.6rem', fontSize: '0.84rem', fontWeight: 600, height: 'auto', minWidth: '160px' }}
+                value={profile?.businessName || ''}
+                onChange={(e) => {
+                  if (e.target.value === '__ADD_NEW__') {
+                    setShowNewCompanyModal(true);
+                  } else {
+                    const found = allProfiles.find(p => p.businessName === e.target.value);
+                    if (found) handleSwitchProfile(found);
+                  }
+                }}
+              >
+                {allProfiles.map(p => (
+                  <option key={p.id || p.businessName} value={p.businessName}>{p.businessName}</option>
+                ))}
+                <option value="__ADD_NEW__">➕ Add New Company...</option>
+              </select>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowNewCompanyModal(true)}
+                title="Add New Company (e.g. MANOJ, VINAYAK)"
+                style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+              >
+                <Plus size={13} /> Add
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Calendar size={16} style={{ color: 'var(--primary, #1e40af)' }} />
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, margin: 0, color: 'var(--text-muted)' }}>Financial Year:</label>
+              <select
+                className="form-input"
+                style={{ padding: '0.3rem 0.6rem', fontSize: '0.84rem', fontWeight: 600, height: 'auto', minWidth: '130px' }}
+                value={activeFY}
+                onChange={(e) => handleFYChange(e.target.value)}
+              >
+                {fyList.map(fy => (
+                  <option key={fy} value={fy}>FY {fy}</option>
+                ))}
+                <option value="all">All Financial Years</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              padding: '0.25rem 0.75rem',
+              borderRadius: '999px',
+              background: 'rgba(30, 64, 175, 0.08)',
+              color: 'var(--primary, #1e40af)',
+              border: '1px solid rgba(30, 64, 175, 0.2)',
+            }}>
+              🏢 {profile?.businessName || 'Business'} &bull; {activeFY === 'all' ? 'All Years' : `FY ${activeFY}`}
+            </span>
+          </div>
+        </div>
+
+        {/* New Company Modal */}
+        {showNewCompanyModal && (
+          <div className="modal-overlay" onClick={() => setShowNewCompanyModal(false)}>
+            <div className="modal" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Add New Company (नई कंपनी जोड़ें)</h3>
+                <button type="button" className="icon-btn" onClick={() => setShowNewCompanyModal(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateNewCompany}>
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                    Enter company details (e.g. MANOJ, VINAYAK). Invoices, challans, and reports will be scoped to this company and selected year.
+                  </p>
+                  <div>
+                    <label className="form-label">Company / Firm Name *</label>
+                    <input
+                      type="text"
+                      required
+                      className="form-input"
+                      value={newCompanyForm.businessName}
+                      onChange={e => setNewCompanyForm({ ...newCompanyForm, businessName: e.target.value })}
+                      placeholder="e.g. MANOJ TEXTILES"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">GSTIN (Optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newCompanyForm.gstin}
+                      onChange={e => setNewCompanyForm({ ...newCompanyForm, gstin: e.target.value.toUpperCase() })}
+                      placeholder="24ABCDE1234F1Z5"
+                      maxLength={15}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">State</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newCompanyForm.state}
+                      onChange={e => setNewCompanyForm({ ...newCompanyForm, state: e.target.value })}
+                      placeholder="e.g. Gujarat"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Address</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newCompanyForm.address}
+                      onChange={e => setNewCompanyForm({ ...newCompanyForm, address: e.target.value })}
+                      placeholder="Ring Road, Surat"
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                    <div>
+                      <label className="form-label">Phone</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={newCompanyForm.phone}
+                        onChange={e => setNewCompanyForm({ ...newCompanyForm, phone: e.target.value })}
+                        placeholder="9876543210"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Email</label>
+                      <input
+                        type="email"
+                        className="form-input"
+                        value={newCompanyForm.email}
+                        onChange={e => setNewCompanyForm({ ...newCompanyForm, email: e.target.value })}
+                        placeholder="info@company.com"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowNewCompanyModal(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Save &amp; Switch to Company
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {currentView !== 'new' && <StarBanner />}
         {currentView === 'dashboard' && (
-          <Dashboard onNew={handleNewInvoice} onEdit={handleEditInvoice} onPrint={handlePrintInvoice} onDuplicate={handleDuplicateInvoice} onConvert={handleConvertToInvoice} onOpenProducts={() => setCurrentView('inventory')} onOpenSettings={() => setCurrentView('settings')} onOpenGuide={openDocs} onOpenSupport={() => setCurrentView('support')} activeProfile={profile} />
+          <Dashboard onNew={handleNewInvoice} onEdit={handleEditInvoice} onPrint={handlePrintInvoice} onDuplicate={handleDuplicateInvoice} onConvert={handleConvertToInvoice} onOpenProducts={() => setCurrentView('inventory')} onOpenSettings={() => setCurrentView('settings')} onOpenGuide={openDocs} onOpenSupport={() => setCurrentView('support')} activeProfile={profile} activeFY={activeFY} />
         )}
         {currentView === 'new' && (
           <InvoiceGenerator
@@ -1005,6 +1269,16 @@ function App() {
         {/* v1.10.4 — All lazy views under one Suspense boundary. Only the
              matched view's chunk actually loads; others stay unfetched. */}
         <Suspense fallback={<ViewLoading />}>
+        {currentView === 'challans' && (
+          <DeliveryChallan
+            key={`${businessKey}-${activeFY}`}
+            profile={profile}
+            activeCompany={profile}
+            activeFY={activeFY}
+            onConvertToInvoice={handleConvertChallanToInvoice}
+            onBackToDashboard={() => setCurrentView('dashboard')}
+          />
+        )}
         {currentView === 'clients' && (
           <ClientsView onNew={handleNewInvoice} onEdit={handleEditInvoice} onDuplicate={handleDuplicateInvoice} />
         )}
@@ -1029,7 +1303,7 @@ function App() {
           <ReceiptVoucher key={businessKey} />
         )}
         {currentView === 'reports' && (
-          <ReportsView key={businessKey} />
+          <ReportsView key={`${businessKey}-${activeFY}`} activeProfile={profile} activeFY={activeFY} />
         )}
         {currentView === 'filing' && (
           <GSTReturns key={businessKey} />

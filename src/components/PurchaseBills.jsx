@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye, UserCheck } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile } from '../store';
+import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBrokers } from '../store';
 import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, isInterstateSupply, localToday, roundQty } from '../utils';
+import { handleEnterKeyNavigation } from '../utils/enterKeyNav';
 import TableExport from './TableExport';
 import BulkCsvImport from './BulkCsvImport';
 import UnassignedBanner from './UnassignedBanner';
@@ -54,6 +55,7 @@ const emptyForm = {
   supplierAddress: '',
   supplierGstin: '',
   invoiceNumber: '',
+  brokerName: '',
   items: [{ ...emptyItem }],
   paymentStatus: 'Unpaid',
   interstate: false, // true ⇒ supplier charged IGST; false ⇒ CGST + SGST. Routes ITC correctly in GSTR-3B.
@@ -89,6 +91,8 @@ function calcPurchaseTotal(items, applyRoundOff = false) {
 
 export default function PurchaseBills() {
   const [purchases, setPurchases] = useState([]);
+  const [brokers, setBrokers] = useState([]);
+  const formContainerRef = useRef(null);
   // v1.10.65 (#58 item 3) — the business these records belong to.
   const [ownerProfile, setOwnerProfile] = useState(null);
   // v1.10.54 (#42) — the Products & Services master, used to seed item
@@ -203,6 +207,7 @@ export default function PurchaseBills() {
     if (fyOptions[0]) setFyFilter(fyOptions[0].value);
     loadPurchases();
     loadProducts();
+    getAllBrokers().then(b => setBrokers(b || [])).catch(() => {});
   }, []);
 
   const filtered = purchases.filter(p => {
@@ -210,6 +215,7 @@ export default function PurchaseBills() {
       const q = search.toLowerCase();
       if (!(p.supplierName || '').toLowerCase().includes(q) &&
           !(p.invoiceNumber || '').toLowerCase().includes(q) &&
+          !(p.brokerName || '').toLowerCase().includes(q) &&
           !(p.supplierGstin || '').toLowerCase().includes(q)) return false;
     }
     if (fyFilter) {
@@ -239,6 +245,7 @@ export default function PurchaseBills() {
       supplierAddress: purchase.supplierAddress || '',
       supplierGstin: purchase.supplierGstin || '',
       invoiceNumber: purchase.invoiceNumber || '',
+      brokerName: purchase.brokerName || '',
       items: purchase.items && purchase.items.length > 0 ? purchase.items.map(i => ({ ...i })) : [{ ...emptyItem }],
       paymentStatus: purchase.paymentStatus || 'Unpaid',
       interstate: !!purchase.interstate,
@@ -414,6 +421,7 @@ export default function PurchaseBills() {
         roundOff: totals.roundOff,
         paymentStatus: form.paymentStatus,
         interstate: !!form.interstate,
+        brokerName: (form.brokerName || '').trim(),
         note: form.note.trim(),
       };
       await savePurchase(purchase);
@@ -991,6 +999,7 @@ export default function PurchaseBills() {
       {showForm && (
         <div className="modal-overlay" onClick={closeForm}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '720px' }}>
+            <form ref={formContainerRef} onKeyDown={(e) => handleEnterKeyNavigation(e, formContainerRef.current)} onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
             <h3 className="section-title">{editingId ? 'Edit Purchase Bill' : 'Add Purchase Bill'}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="form-group">
@@ -1044,6 +1053,20 @@ export default function PurchaseBills() {
                   onChange={e => updateField('invoiceNumber', e.target.value)} placeholder="Supplier invoice no." />
               </div>
               <div className="form-group">
+                <label className="form-label">Broker / Agent (दलाल)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={form.brokerName || ''}
+                  list="fgsb-purchase-brokers"
+                  onChange={e => updateField('brokerName', e.target.value)}
+                  placeholder="Select or enter broker"
+                />
+                <datalist id="fgsb-purchase-brokers">
+                  {brokers.map(b => <option key={b.name} value={b.name} />)}
+                </datalist>
+              </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
                 <label className="form-label">Note (optional)</label>
                 <input type="text" className="form-input" value={form.note}
                   onChange={e => updateField('note', e.target.value)} placeholder="Any note..." />
@@ -1184,9 +1207,10 @@ export default function PurchaseBills() {
             </div>
 
             <div className="flex gap-2 justify-end mt-4">
-              <button className="btn btn-secondary" onClick={closeForm}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave}><Save size={16} /> {editingId ? 'Update' : 'Save'}</button>
+              <button type="button" className="btn btn-secondary" onClick={closeForm}>Cancel</button>
+              <button type="submit" className="btn btn-primary"><Save size={16} /> {editingId ? 'Update' : 'Save'}</button>
             </div>
+            </form>
           </div>
         </div>
       )}
@@ -1197,7 +1221,7 @@ export default function PurchaseBills() {
           <h3>Purchase Records</h3>
           <TableExport title="Purchase register" filename="Purchases" landscape
             subtitle={ownerProfile?.businessName || ''}
-            headers={['Date', 'Supplier', 'GSTIN', 'Invoice No', 'Taxable Amount', 'Tax (excl. cess)', 'Cess', 'Inter-state', 'Round-off', 'Total', 'Status', 'Note']}
+            headers={['Date', 'Supplier', 'GSTIN', 'Invoice No', 'Broker', 'Taxable Amount', 'Tax (excl. cess)', 'Cess', 'Inter-state', 'Round-off', 'Total', 'Status', 'Note']}
             rows={registerRows} />
         </div>
         {filtered.length === 0 ? (
@@ -1208,13 +1232,14 @@ export default function PurchaseBills() {
           </div>
         ) : (
           <div className="table-scroll">
-            <table className="data-table" style={{ minWidth: '800px' }}>
+            <table className="data-table" style={{ minWidth: '850px' }}>
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Supplier</th>
                   <th>GSTIN</th>
                   <th>Invoice No</th>
+                  <th>Broker</th>
                   <th style={{ textAlign: 'right' }}>Taxable</th>
                   <th style={{ textAlign: 'right' }}>Tax</th>
                   <th style={{ textAlign: 'right' }}>Total</th>
@@ -1231,6 +1256,13 @@ export default function PurchaseBills() {
                       <td className="font-medium">{p.supplierName}</td>
                       <td className="text-muted" style={{ fontSize: '0.78rem' }}>{p.supplierGstin || '-'}</td>
                       <td><span className="invoice-badge">{p.invoiceNumber}</span></td>
+                      <td>
+                        {p.brokerName ? (
+                          <span style={{ color: '#4338ca', fontWeight: 500 }}>{p.brokerName}</span>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(t.taxable)}</td>
                       <td style={{ textAlign: 'right' }} className="text-muted">{formatCurrency(t.tax)}</td>
                       <td style={{ textAlign: 'right' }} className="font-bold">{formatCurrency(t.finalTotal)}</td>

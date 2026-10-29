@@ -547,3 +547,34 @@ export const importData = async (jsonString, selection) => {
 
   return result;
 };
+
+// ---- Textile Delivery Challans ----
+export const getAllChallans = async () => apiFetch(`${API}/challans`);
+export const saveChallan = async (challan) => apiFetch(`${API}/challans`, { method: 'POST', body: JSON.stringify(challan) });
+export const deleteChallan = async (id) => apiFetch(`${API}/challans/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+// ---- Brokers (दलाल / एजेंट) ----
+export const getAllBrokers = async () => apiFetch(`${API}/brokers`);
+export const saveBroker = async (broker) => apiFetch(`${API}/brokers`, { method: 'POST', body: JSON.stringify(broker) });
+export const deleteBroker = async (id) => apiFetch(`${API}/brokers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+// ---- Active Company & Financial Year Management ----
+const ACTIVE_COMPANY_KEY = 'fgsb_active_company';
+const ACTIVE_FY_KEY = 'fgsb_active_fy';
+
+export const getActiveCompanySelection = () => {
+  try { return localStorage.getItem(ACTIVE_COMPANY_KEY) || ''; } catch { return ''; }
+};
+
+export const setActiveCompanySelection = (companyIdOrName) => {
+  try { localStorage.setItem(ACTIVE_COMPANY_KEY, companyIdOrName || ''); } catch { /* ignore */ }
+};
+
+export const getActiveFinancialYearSelection = () => {
+  try { return localStorage.getItem(ACTIVE_FY_KEY) || ''; } catch { return ''; }
+};
+
+export const setActiveFinancialYearSelection = (fy) => {
+  try { localStorage.setItem(ACTIVE_FY_KEY, fy || ''); } catch { /* ignore */ }
+};
+
