@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Receipt, Plus, Trash2, Search, Printer, Pencil } from 'lucide-react';
 import { getAllReceipts, saveReceipt, deleteReceipt, getAllBills, getProfile, getNextInvoiceNumber, saveBill } from '../store';
-import { formatCurrency, numberToWords, belongsToProfile, isUnassignedToBusiness, countsAsSales, businessKeyOf, localToday, amountDue, paymentStatusFor, isCancelledBill } from '../utils';
+import { formatCurrency, numberToWords, belongsToProfile, isUnassignedToBusiness, countsAsSales, businessKeyOf, localToday, amountDue, paymentStatusFor, isCancelledBill, getPaymentAccounts } from '../utils';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
@@ -18,6 +18,7 @@ const emptyForm = {
   clientAddress: '',
   amount: '',
   paymentMode: 'Bank Transfer',
+  bankName: '',
   referenceNo: '',
   againstInvoice: '',
   note: '',
@@ -101,6 +102,7 @@ export default function ReceiptVoucher() {
       clientAddress: rcp.clientAddress || '',
       amount: String(rcp.amount ?? ''),
       paymentMode: rcp.paymentMode || 'Bank Transfer',
+      bankName: rcp.bankName || '',
       referenceNo: rcp.referenceNo || '',
       againstInvoice: rcp.againstInvoice || '',
       note: rcp.note || '',
@@ -387,6 +389,20 @@ export default function ReceiptVoucher() {
                 <label className="form-label">Payment Mode</label>
                 <select className="form-input" value={form.paymentMode} onChange={e => updateField('paymentMode', e.target.value)}>
                   {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Bank Name / Account</label>
+                <select className="form-input" value={form.bankName} onChange={e => updateField('bankName', e.target.value)}>
+                  <option value="">-- Select Bank Account --</option>
+                  {getPaymentAccounts(profile).map((acc, idx) => (
+                    <option key={idx} value={acc.bankName || acc.name}>
+                      {acc.bankName || acc.name} {acc.accountNumber ? `(A/c: ${acc.accountNumber})` : ''}
+                    </option>
+                  ))}
+                  {profile.bankName && !getPaymentAccounts(profile).some(a => (a.bankName || a.name) === profile.bankName) && (
+                    <option value={profile.bankName}>{profile.bankName} {profile.accountNumber ? `(${profile.accountNumber})` : ''}</option>
+                  )}
                 </select>
               </div>
               <div className="form-group">

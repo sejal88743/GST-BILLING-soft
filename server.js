@@ -96,7 +96,7 @@ app.use((req, res, next) => {
 });
 
 // Ensure data directory and sub-directories exist
-const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases', 'challans', 'brokers'];
+const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'payments', 'profiles', 'purchases', 'challans', 'brokers'];
 for (const dir of DIRS) {
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -487,6 +487,29 @@ app.post('/api/receipts', (req, res) => {
 
 app.delete('/api/receipts/:id', (req, res) => {
   const filePath = path.join(DATA_DIR, 'receipts', safeFileName(req.params.id) + '.json');
+  deleteFile(filePath);
+  res.json({ success: true });
+});
+
+// ========================
+// PAYMENTS (Payments Made / Payment Vouchers)
+// ========================
+app.get('/api/payments', (req, res) => {
+  const payments = readAllFromDir('payments');
+  payments.sort((a, b) => new Date(b.date) - new Date(a.date));
+  res.json(payments);
+});
+
+app.post('/api/payments', (req, res) => {
+  const payment = req.body;
+  if (!payment.id) payment.id = 'pay_' + Date.now();
+  const filePath = path.join(DATA_DIR, 'payments', safeFileName(payment.id) + '.json');
+  writeJSON(filePath, payment);
+  res.json({ success: true, id: payment.id });
+});
+
+app.delete('/api/payments/:id', (req, res) => {
+  const filePath = path.join(DATA_DIR, 'payments', safeFileName(req.params.id) + '.json');
   deleteFile(filePath);
   res.json({ success: true });
 });

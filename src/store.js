@@ -358,6 +358,15 @@ export const deleteReceipt = async (id) => {
   return apiFetch(`${API}/receipts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 };
 
+// ---- Payments Made / Payment Vouchers ----
+export const getAllPayments = async () => apiFetch(`${API}/payments`);
+export const savePayment = async (payment) => {
+  const res = await apiFetch(`${API}/payments`, { method: 'POST', body: JSON.stringify(payment) });
+  if (res.id) payment.id = res.id;
+  return payment;
+};
+export const deletePayment = async (id) => apiFetch(`${API}/payments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
 // ---- Business Profiles (multi-business) ----
 export const getAllProfiles = async () => {
   return apiFetch(`${API}/profiles`);

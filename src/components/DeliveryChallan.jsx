@@ -54,6 +54,7 @@ export default function DeliveryChallan({
     notes: '',
     // 72 Taka Grid: Array of 72 numbers or empty strings
     takaList: Array(72).fill(''),
+    lotList: Array(72).fill(''),
   });
 
   // Broker Modal State
@@ -238,6 +239,12 @@ export default function DeliveryChallan({
     const next = [...currentChallan.takaList];
     next[index] = value;
     setCurrentChallan(prev => ({ ...prev, takaList: next }));
+  };
+
+  const handleLotChange = (index, value) => {
+    const next = [...(currentChallan.lotList || Array(72).fill(''))];
+    next[index] = value;
+    setCurrentChallan(prev => ({ ...prev, lotList: next }));
   };
 
   // Calculations for current challan
@@ -768,62 +775,86 @@ export default function DeliveryChallan({
               </div>
             </div>
 
-            {/* 72 Taka Grid Layout: 6 columns of 12 on large screens, 3 or 2 on mobile */}
+            {/* 6 Columns Grid: Sr No 1 to 12 Up-to-Down per Column with zero padding and no arrows */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(95px, 1fr))',
-              gap: '0.4rem',
-              maxHeight: '440px',
+              gridTemplateColumns: 'repeat(6, minmax(140px, 1fr))',
+              gap: '0.35rem',
+              maxHeight: '500px',
               overflowY: 'auto',
-              padding: '0.75rem',
+              padding: '0.4rem',
               background: 'var(--bg-tertiary)',
               borderRadius: '8px',
               border: '1px solid var(--border-color)',
             }}>
-              {Array.from({ length: 72 }).map((_, idx) => {
-                const val = currentChallan.takaList[idx] || '';
-                const isFilled = parseFloat(val) > 0;
-                return (
-                  <div 
-                    key={idx} 
-                    style={{
-                      background: isFilled ? 'var(--card-bg)' : 'transparent',
-                      border: isFilled ? '1px solid var(--primary)' : '1px dashed var(--border-color)',
-                      borderRadius: '6px',
-                      padding: '0.35rem 0.5rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.25rem',
-                    }}
-                  >
-                    <span style={{
-                      fontSize: '0.72rem',
-                      fontWeight: 700,
-                      color: isFilled ? 'var(--primary)' : 'var(--text-muted)',
-                      width: '22px',
-                    }}>
-                      {idx + 1}.
-                    </span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-input taka-input"
-                      placeholder="0.00"
-                      value={val}
-                      onChange={e => handleTakaChange(idx, e.target.value)}
-                      style={{
-                        padding: '0.2rem 0.35rem',
-                        fontSize: '0.85rem',
-                        fontWeight: isFilled ? 700 : 400,
-                        textAlign: 'right',
-                        width: '100%',
-                        border: 'none',
-                        background: 'transparent',
-                      }}
-                    />
+              {Array.from({ length: 6 }).map((_, colIdx) => (
+                <div key={colIdx} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div style={{ background: 'var(--primary)', color: '#fff', padding: '0.25rem', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, borderRadius: '4px' }}>
+                    Col #{colIdx + 1} (Sr 1-12)
                   </div>
-                );
-              })}
+                  <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 1fr', gap: '2px', padding: '1px 2px', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                    <span>Sr</span>
+                    <span>Lot</span>
+                    <span style={{ textAlign: 'right' }}>Mtr</span>
+                  </div>
+                  {Array.from({ length: 12 }).map((__, rowIdx) => {
+                    const idx = colIdx * 12 + rowIdx;
+                    const val = currentChallan.takaList[idx] || '';
+                    const lotVal = currentChallan.lotList?.[idx] || '';
+                    const isFilled = parseFloat(val) > 0;
+                    return (
+                      <div 
+                        key={idx} 
+                        style={{
+                          background: isFilled ? 'var(--card-bg)' : 'transparent',
+                          border: isFilled ? '1px solid var(--primary)' : '1px dashed var(--border-color)',
+                          borderRadius: '4px',
+                          padding: '1px 2px',
+                          display: 'grid',
+                          gridTemplateColumns: '20px 1fr 1fr',
+                          gap: '2px',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          color: isFilled ? 'var(--primary)' : 'var(--text-muted)',
+                        }}>
+                          {rowIdx + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Lot"
+                          value={lotVal}
+                          onChange={e => handleLotChange(idx, e.target.value)}
+                          title="Lot No (repeats until next Lot entered)"
+                          style={{ padding: '1px 2px', fontSize: '0.7rem', textAlign: 'center', background: 'transparent', height: '24px' }}
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="form-input taka-input"
+                          placeholder="0.00"
+                          value={val}
+                          onChange={e => handleTakaChange(idx, e.target.value)}
+                          title="Enter Meter directly (e.g. 102.25, 130.25, 105, 105.75)"
+                          style={{
+                            padding: '1px 2px',
+                            fontSize: '0.78rem',
+                            fontWeight: isFilled ? 700 : 400,
+                            textAlign: 'right',
+                            background: 'transparent',
+                            border: 'none',
+                            height: '24px',
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
 

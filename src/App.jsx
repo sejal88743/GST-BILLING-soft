@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, Heart, Layers, Calendar } from 'lucide-react';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, Heart, Layers, Calendar, CreditCard, Folder } from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients, runUpdateNow, getLockStatus, getActiveFinancialYearSelection, setActiveFinancialYearSelection } from './store';
 import { isModuleEnabled, getUpcomingFilings, countsAsSales, localToday, toLocalIsoDate, DOCS_URL } from './utils';
 import { getIndianFinancialYear, getFinancialYearOptions } from './utils/companyContext';
@@ -31,6 +31,8 @@ const ReportsView = lazy(() => import('./components/ReportsView'));
 const ExpenseTracker = lazy(() => import('./components/ExpenseTracker'));
 const RecurringInvoices = lazy(() => import('./components/RecurringInvoices'));
 const ReceiptVoucher = lazy(() => import('./components/ReceiptVoucher'));
+const PaymentVoucher = lazy(() => import('./components/PaymentVoucher'));
+const PrintTemplatesHub = lazy(() => import('./components/PrintTemplatesHub'));
 const GSTReturns = lazy(() => import('./components/GSTReturns'));
 const IncomeTax = lazy(() => import('./components/IncomeTax'));
 const PurchaseBills = lazy(() => import('./components/PurchaseBills'));
@@ -39,6 +41,7 @@ const SupportView = lazy(() => import('./components/SupportView'));
 import StarBanner from './components/StarBanner';
 import AppFooter from './components/AppFooter';
 import LockButton from './components/LockButton';
+import QuickAddModal from './components/QuickAddModal';
 import { lockNow } from './utils/appLock';
 import { getPrintSettings } from './utils/printSettings';
 
@@ -74,7 +77,7 @@ function App() {
       const params = new URLSearchParams(window.location.search);
       const v = params.get('view');
       // v1.10.74 - 'controlpanel' added so ?view=controlpanel deep links work too.
-      const valid = ['dashboard', 'new', 'challans', 'clients', 'inventory', 'expenses', 'purchases', 'recurring', 'receipts', 'reports', 'filing', 'incometax', 'settings', 'controlpanel', 'support'];
+      const valid = ['dashboard', 'new', 'challans', 'clients', 'inventory', 'expenses', 'purchases', 'recurring', 'receipts', 'payments', 'templates', 'reports', 'filing', 'incometax', 'settings', 'controlpanel', 'support'];
       if (v && valid.includes(v)) {
         // Strip the query string so a refresh doesn't keep snapping back to
         // the shortcut target — only the *first* navigation honours it.
@@ -108,6 +111,7 @@ function App() {
   const [newCompanyForm, setNewCompanyForm] = useState({
     businessName: '', gstin: '', address: '', state: '', phone: '', email: ''
   });
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('freegstbill_theme') === 'dark';
   });
@@ -624,7 +628,9 @@ function App() {
     { id: 'purchases', icon: ShoppingCart, label: 'Purchases', module: 'purchases' },
     { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring' },
     { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts' },
+    { id: 'payments', icon: CreditCard, label: 'Payment Vouchers (भुगतान)', module: 'receipts' },
     { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports' },
+    { id: 'templates', icon: Folder, label: 'Crystal Reports Hub', module: 'reports' },
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax' },
     // v1.10.75 - opens the online documentation, which covers every screen
@@ -1146,7 +1152,16 @@ function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowQuickAddModal(true)}
+              style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              title="Quick Add Party, Broker, or Item in one place"
+            >
+              <Plus size={15} /> Quick Add (पार्टी/दलाल/आइटम)
+            </button>
             <span style={{
               fontSize: '0.8rem',
               fontWeight: 700,
@@ -1302,8 +1317,14 @@ function App() {
         {currentView === 'receipts' && (
           <ReceiptVoucher key={businessKey} />
         )}
+        {currentView === 'payments' && (
+          <PaymentVoucher key={businessKey} />
+        )}
         {currentView === 'reports' && (
           <ReportsView key={`${businessKey}-${activeFY}`} activeProfile={profile} activeFY={activeFY} />
+        )}
+        {currentView === 'templates' && (
+          <PrintTemplatesHub key={businessKey} />
         )}
         {currentView === 'filing' && (
           <GSTReturns key={businessKey} />
@@ -1321,6 +1342,8 @@ function App() {
           <SupportView />
         )}
         </Suspense>
+        {/* Quick Add Modal */}
+        <QuickAddModal isOpen={showQuickAddModal} onClose={() => setShowQuickAddModal(false)} />
         {/* Version + DiceCodes line: Dashboard only, so it never takes space on working screens. */}
         {currentView === 'dashboard' && <AppFooter onOpenSupport={() => setCurrentView('support')} />}
       </div>
