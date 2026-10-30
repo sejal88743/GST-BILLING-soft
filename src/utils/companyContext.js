@@ -58,19 +58,50 @@ export function normalizeCompanyName(name) {
 }
 
 /**
- * Checks if a record (Bill, Challan, Purchase, Expense) belongs to the selected company
+ * Returns the company name associated with a record (Bill, Challan, Purchase, Expense)
+ */
+export function getRecordCompanyName(item, fallback = '') {
+  if (!item) return fallback;
+  return (
+    item.companyName ||
+    item.profileBusinessName ||
+    item.ownerName ||
+    item.data?.profile?.businessName ||
+    item.businessName ||
+    fallback ||
+    'Main Firm'
+  );
+}
+
+/**
+ * Returns the company GSTIN associated with a record
+ */
+export function getRecordCompanyGstin(item) {
+  if (!item) return '';
+  return (
+    item.companyGstin ||
+    item.ownerGstin ||
+    item.data?.profile?.gstin ||
+    item.gstin ||
+    ''
+  );
+}
+
+/**
+ * Checks if a record (Bill, Challan, Purchase, Expense) belongs to the selected company.
+ * If activeCompany is null, 'all', or { id: 'all' }, returns true (consolidated multi-company mode).
  */
 export function matchesCompany(item, activeCompany) {
-  if (!activeCompany) return true;
+  if (!activeCompany || activeCompany === 'all' || activeCompany?.id === 'all') return true;
   const targetName = normalizeCompanyName(activeCompany.businessName || activeCompany.name || activeCompany);
   const targetGstin = String(activeCompany.gstin || '').trim().toUpperCase();
 
   // Check item's company tags
-  const itemGstin = String(item.companyGstin || item.ownerGstin || item.data?.profile?.gstin || '').trim().toUpperCase();
+  const itemGstin = String(item.companyGstin || item.ownerGstin || item.data?.profile?.gstin || item.gstin || '').trim().toUpperCase();
   if (targetGstin && itemGstin && targetGstin === itemGstin) return true;
 
   const itemName = normalizeCompanyName(
-    item.companyName || item.ownerName || item.profileBusinessName || item.data?.profile?.businessName || ''
+    item.companyName || item.ownerName || item.profileBusinessName || item.data?.profile?.businessName || item.businessName || ''
   );
   if (targetName && itemName && targetName === itemName) return true;
 
@@ -98,3 +129,67 @@ export function matchesCompanyAndYear(item, activeCompany, activeFY) {
 
   return true;
 }
+
+/**
+ * Aggregates all distinct companies discovered across saved profiles and records.
+ */
+export function extractAllCompanies(profiles = [], records = []) {
+  const companies = [];
+  const gstinIndex = new Map();
+  const nameIndex = new Map();
+
+  function addOrMerge(data, isProfile = false) {
+    if (!data) return;
+    const name = String(data.businessName || data.name || '').trim();
+    if (!name) return;
+    const gstin = String(data.gstin || '').trim().toUpperCase();
+    const normName = normalizeCompanyName(name);
+
+    let existing = null;
+    if (gstin && gstinIndex.has(gstin)) {
+      existing = gstinIndex.get(gstin);
+    } else if (normName && nameIndex.has(normName)) {
+      existing = nameIndex.get(normName);
+    }
+
+    if (existing) {
+      if (!existing.gstin && gstin) {
+        existing.gstin = gstin;
+        gstinIndex.set(gstin, existing);
+      }
+      if (isProfile) {
+        existing.id = data.id || existing.id;
+        if (data.address) existing.address = data.address;
+        if (data.phone) existing.phone = data.phone;
+      }
+    } else {
+      const entry = {
+        id: data.id || (isProfile ? `prof_${companies.length + 1}` : `comp_${companies.length + 1}`),
+        businessName: name,
+        gstin: gstin,
+        address: data.address || '',
+        phone: data.phone || '',
+      };
+      companies.push(entry);
+      if (gstin) gstinIndex.set(gstin, entry);
+      if (normName) nameIndex.set(normName, entry);
+    }
+  }
+
+  // 1. Add from saved profiles
+  (profiles || []).forEach(p => addOrMerge(p, true));
+
+  // 2. Add any other companies found in bills/records
+  (records || []).forEach(r => {
+    if (!r) return;
+    const name = getRecordCompanyName(r, '');
+    const gstin = getRecordCompanyGstin(r);
+    if (name) {
+      addOrMerge({ businessName: name, gstin });
+    }
+  });
+
+  return companies;
+}
+
+

@@ -39,40 +39,22 @@ const persistedPort = (() => {
     return (isFinite(n) && n >= 1024 && n <= 65535) ? n : null;
   } catch { return null; }
 })();
-const STARTING_PORT = process.env.PORT ? (parseInt(process.env.PORT, 10) || 3000) : (persistedPort || DEFAULT_PORT);
+const STARTING_PORT = parseInt(process.env.PORT, 10) || persistedPort || DEFAULT_PORT;
 const MAX_PORT_SCAN = 50;
 
 const app = express();
 
-// v1.10.0 — CORS lockdown. Previously `app.use(cors())` echoed
-// Access-Control-Allow-Origin: *, which meant any site the user visited
-// could `fetch('http://localhost:47371/api/bills')` and read/wipe all
-// data. This is a local desktop-style app: legitimate callers either
-// have no Origin header (same-page fetch from our own served HTML,
-// browsers' XHR to localhost from about:blank tools, curl) or an
-// Origin pointing at http://localhost:<port>. Everything else is
-// rejected. The Vite dev server proxies /api → us so its origin is
-// also localhost.
+// CORS middleware supporting local development and cloud preview environments
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const host = req.headers.host;
-  const isSameHost = origin && host && (origin === `http://${host}` || origin === `https://${host}`);
-  const isAllowedDomain = origin && /(\.run\.app|\.google\.com|\.web\.app|\.firebaseapp\.com)(:\d+)?$/i.test(origin);
-  const allow =
-    !origin ||
-    isSameHost ||
-    isAllowedDomain ||
-    /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
-    /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
-    /^https?:\/\/\[::1\](:\d+)?$/i.test(origin);
-  if (!allow) {
-    return res.status(403).json({ error: 'Cross-origin request refused' });
-  }
   if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();

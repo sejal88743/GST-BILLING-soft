@@ -4,8 +4,6 @@ import { saveClient, saveBroker, saveProduct } from '../store';
 import { toast } from './Toast';
 
 export default function QuickAddModal({ isOpen, onClose, onAdded }) {
-  if (!isOpen) return null;
-
   const [tab, setTab] = useState('party'); // 'party' | 'broker' | 'product'
 
   // Party Form
@@ -14,6 +12,8 @@ export default function QuickAddModal({ isOpen, onClose, onAdded }) {
   const [brokerForm, setBrokerForm] = useState({ name: '', phone: '' });
   // Product Form
   const [productForm, setProductForm] = useState({ name: '', hsn: '', unit: 'Pcs', salesPrice: '', taxPercent: '5', stock: '' });
+
+  if (!isOpen) return null;
 
   const handleSaveParty = async (e) => {
     e.preventDefault();

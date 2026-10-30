@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   FileText, Plus, Trash2, Printer, Search, ArrowRight, CheckCircle2, 
   Clock, Scissors, UserCheck, Layers, Hash, Calendar, Building, 
-  MapPin, Truck, ChevronRight, X, ArrowUpDown, Filter, Download
+  MapPin, Truck, ChevronRight, X, ArrowUpDown, Filter, Download,
+  ClipboardPaste, Sparkles
 } from 'lucide-react';
 import { 
   getAllChallans, saveChallan, deleteChallan, 
@@ -13,6 +14,50 @@ import { getIndianFinancialYear, matchesCompanyAndYear } from '../utils/companyC
 import { handleEnterKeyNavigation } from '../utils/enterKeyNav';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
+
+// Surat Power Loom Quality Presets
+const SURAT_QUALITY_PRESETS = [
+  'D FIYONA 8.500 (REL*REL)',
+  'ROTO 11.500 (REL*REL)',
+  'ROTO 9.500',
+  'MICRO 5.500',
+  'WATERJET SATIN 80 GSM',
+  'JACQUARD 84/36',
+  'CREPE 7.500',
+  'REYON 14 KG (30x30)',
+  'COTTON CAMBRIC 60x60',
+  'HEAVY DULL 12.500',
+  'ORGANZA 3.500',
+  'MOSS CHIFFON 6.000',
+];
+
+// Surat Textile Market Presets
+const SURAT_MARKET_PRESETS = [
+  'RADHA KRISHNA MARKET, RING ROAD, SURAT',
+  'MILLENNIUM TEXTILE MARKET, RING ROAD, SURAT',
+  'SURAT TEXTILE MARKET (STM), RING ROAD, SURAT',
+  'AVADH TEXTILE MARKET, SAHARA DARWAJA, SURAT',
+  'RAGHUKUL TEXTILE MARKET, RING ROAD, SURAT',
+  'ROHIT AC MARKET, RING ROAD, SURAT',
+  'J.J. TEXTILE MARKET, RING ROAD, SURAT',
+  'HARIOM TEXTILE MARKET, RING ROAD, SURAT',
+  'UNIVERSAL TEXTILE MARKET, RING ROAD, SURAT',
+  'KOHINOOR TEXTILE MARKET, RING ROAD, SURAT',
+  'SHREE MAHAVIR TEXTILE MARKET, RING ROAD, SURAT',
+  'NEW BOMBAY MARKET, RING ROAD, SURAT',
+];
+
+// 48-Taka Sample matching Manoj Enterprise Challan #52
+const MANOJ_ENTERPRISE_SAMPLE_METERS = [
+  // Col 1: 12 entries (sum: 1472.25)
+  120.00, 121.00, 121.00, 121.50, 121.50, 122.00, 122.75, 123.50, 124.00, 124.50, 125.00, 125.50,
+  // Col 2: 12 entries (sum: 1548.50)
+  126.00, 127.25, 127.75, 128.00, 128.50, 129.00, 129.00, 129.50, 130.00, 130.50, 131.00, 132.00,
+  // Col 3: 12 entries (sum: 1619.75)
+  132.00, 132.50, 133.25, 134.00, 134.50, 134.50, 135.00, 135.25, 136.00, 137.25, 137.50, 138.00,
+  // Col 4: 12 entries (sum: 1714.50)
+  138.50, 138.50, 139.00, 139.00, 140.00, 140.25, 141.00, 144.25, 144.50, 148.00, 148.50, 153.00,
+];
 
 export default function DeliveryChallan({ 
   profile, 
@@ -43,15 +88,15 @@ export default function DeliveryChallan({
     clientPhone: '',
     clientState: '',
     brokerName: '',
-    itemName: '',
+    itemName: 'D FIYONA 8.500 (REL*REL)',
     lotNo: '',
     transportName: '',
     vehicleNo: '',
-    station: '',
+    station: 'SURAT',
     ratePerMeter: '',
     status: 'pending', // 'pending' | 'billed'
     billNumber: '',
-    notes: '',
+    notes: 'NO ANY WIVING DEFECT GURANTEE ON GREY SO CHEK AND SEND MILL......ONLY PRINT QUALITY',
     // 72 Taka Grid: Array of 72 numbers or empty strings
     takaList: Array(72).fill(''),
     lotList: Array(72).fill(''),
@@ -62,9 +107,13 @@ export default function DeliveryChallan({
   const [newBrokerName, setNewBrokerName] = useState('');
   const [newBrokerPhone, setNewBrokerPhone] = useState('');
 
+  // Bulk Paste Modal State (no window.prompt!)
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+
   // Print Modals
   const [printChallan, setPrintChallan] = useState(null);
-  const [printMode, setPrintMode] = useState('detailed'); // 'detailed' | 'two-in-one'
+  const [printMode, setPrintMode] = useState('two-in-one'); // 'two-in-one' (default Surat 2 copies on 1 page) | 'detailed'
   const [meterSort, setMeterSort] = useState('as-is'); // 'as-is' | 'asc' | 'desc'
 
   const formRef = useRef(null);
@@ -139,23 +188,60 @@ export default function DeliveryChallan({
       clientGstin: '',
       clientAddress: '',
       clientPhone: '',
-      clientState: profile?.state || '',
+      clientState: profile?.state || 'Gujarat',
       brokerName: '',
-      itemName: '',
+      itemName: 'D FIYONA 8.500 (REL*REL)',
       lotNo: '',
       transportName: '',
       vehicleNo: '',
-      station: '',
+      station: 'SURAT',
       ratePerMeter: '',
       status: 'pending',
       billNumber: '',
-      notes: '',
+      notes: 'NO ANY WIVING DEFECT GURANTEE ON GREY SO CHEK AND SEND MILL......ONLY PRINT QUALITY',
       takaList: Array(72).fill(''),
+      lotList: Array(72).fill(''),
       companyName: activeCompany?.businessName || profile?.businessName || '',
       companyGstin: activeCompany?.gstin || profile?.gstin || '',
       financialYear: activeFY || getIndianFinancialYear(),
     });
     setActiveTab('new');
+  };
+
+  // Load Manoj Enterprise Sample Data (48 Takas matching User's PDF)
+  const handleLoadSuratSample = () => {
+    const list = Array(72).fill('');
+    MANOJ_ENTERPRISE_SAMPLE_METERS.forEach((m, idx) => {
+      list[idx] = m.toFixed(2);
+    });
+
+    setCurrentChallan({
+      id: 'ch_' + Date.now(),
+      challanNumber: '52',
+      challanDate: '2026-09-29',
+      clientName: 'RAJ RATAN FASHION',
+      clientGstin: '24AUCPS7939J1Z3',
+      clientAddress: 'SHOP NO-1664-1665, RADHA KRISHNA MARKET, RING ROAD, SURAT',
+      clientPhone: '',
+      clientState: 'Gujarat',
+      brokerName: 'JAGDISH PUROHIT',
+      itemName: 'D FIYONA 8.500 (REL*REL)',
+      lotNo: '3',
+      transportName: 'LOCAL TEMPO',
+      vehicleNo: '',
+      station: 'SURAT',
+      ratePerMeter: '18.50',
+      status: 'pending',
+      billNumber: '',
+      notes: 'NO ANY WIVING DEFECT GURANTEE ON GREY SO CHEK AND SEND MILL......ONLY PRINT QUALITY',
+      takaList: list,
+      lotList: Array(72).fill('3'),
+      companyName: activeCompany?.businessName || profile?.businessName || 'MANOJ ENTERPRISE',
+      companyGstin: activeCompany?.gstin || profile?.gstin || '24AAVPP7272Q1ZK',
+      financialYear: activeFY || getIndianFinancialYear(),
+    });
+    setActiveTab('new');
+    toast('Loaded Manoj Enterprise 48-Taka Sample from PDF!', 'success');
   };
 
   // Edit existing challan
@@ -166,9 +252,16 @@ export default function DeliveryChallan({
         if (idx < 72) list[idx] = v;
       });
     }
+    const lotList = Array(72).fill('');
+    if (Array.isArray(ch.lotList)) {
+      ch.lotList.forEach((v, idx) => {
+        if (idx < 72) lotList[idx] = v;
+      });
+    }
     setCurrentChallan({
       ...ch,
       takaList: list,
+      lotList: lotList,
     });
     setActiveTab('new');
   };
@@ -194,7 +287,7 @@ export default function DeliveryChallan({
 
   // Client Selection auto-fill
   const handleSelectClient = (clientName) => {
-    const found = clients.find(c => c.name === clientName);
+    const found = clients.find(c => c.name.toLowerCase() === clientName.toLowerCase());
     if (found) {
       setCurrentChallan(prev => ({
         ...prev,
@@ -248,49 +341,68 @@ export default function DeliveryChallan({
   };
 
   // Calculations for current challan
-  const { totalTaka, totalMeters, avgMeter, totalAmount } = useMemo(() => {
+  const { totalTaka, totalMeters, avgMeter, totalAmount, columnSubtotals } = useMemo(() => {
     const list = currentChallan.takaList || [];
     let count = 0;
     let sum = 0;
-    list.forEach(val => {
+    const colTotals = [0, 0, 0, 0, 0, 0];
+    const colCounts = [0, 0, 0, 0, 0, 0];
+
+    list.forEach((val, idx) => {
       const num = parseFloat(val);
       if (!isNaN(num) && num > 0) {
         count += 1;
         sum += num;
+        const colIdx = Math.floor(idx / 12);
+        if (colIdx < 6) {
+          colTotals[colIdx] += num;
+          colCounts[colIdx] += 1;
+        }
       }
     });
+
     const roundedSum = Math.round(sum * 100) / 100;
     const avg = count > 0 ? Math.round((roundedSum / count) * 100) / 100 : 0;
     const rate = parseFloat(currentChallan.ratePerMeter) || 0;
     const amount = Math.round(roundedSum * rate * 100) / 100;
+
     return {
       totalTaka: count,
       totalMeters: roundedSum,
       avgMeter: avg,
       totalAmount: amount,
+      columnSubtotals: colTotals.map((tot, i) => ({
+        total: Math.round(tot * 100) / 100,
+        count: colCounts[i],
+      })),
     };
   }, [currentChallan.takaList, currentChallan.ratePerMeter]);
 
   // Bulk paste meters into Taka list
-  const handleBulkPaste = (text) => {
-    if (!text) return;
-    const numbers = text
-      .split(/[\s,\n\t]+/)
+  const handleApplyPaste = () => {
+    if (!pasteText.trim()) {
+      toast('Please enter meter numbers to paste', 'info');
+      return;
+    }
+    const numbers = pasteText
+      .split(/[\s,\n\t;]+/)
       .map(s => s.trim())
       .filter(s => s && !isNaN(Number(s)))
       .slice(0, 72);
 
     if (numbers.length === 0) {
-      toast('No valid meter values found in clipboard text', 'info');
+      toast('No valid meter values found', 'info');
       return;
     }
 
-    const next = Array(72).fill('');
+    const next = [...currentChallan.takaList];
     numbers.forEach((n, idx) => {
-      next[idx] = n;
+      next[idx] = parseFloat(n).toFixed(2);
     });
     setCurrentChallan(prev => ({ ...prev, takaList: next }));
-    toast(`Added ${numbers.length} Taka successfully`, 'success');
+    setShowPasteModal(false);
+    setPasteText('');
+    toast(`Added ${numbers.length} Taka meters successfully`, 'success');
   };
 
   // Save Challan
@@ -337,13 +449,12 @@ export default function DeliveryChallan({
 
   // Convert to Invoice
   const handleConvertToBill = (challan) => {
-    // Sync Challan No and Bill No!
     if (onConvertToInvoice) {
       onConvertToInvoice({
         fromChallan: true,
         challanId: challan.id,
         challanNumber: challan.challanNumber,
-        invoiceNumber: challan.challanNumber, // SAME NUMBER AS REQUESTED!
+        invoiceNumber: challan.challanNumber, // Sync challan & invoice number
         clientName: challan.clientName,
         clientGstin: challan.clientGstin,
         clientAddress: challan.clientAddress,
@@ -363,7 +474,6 @@ export default function DeliveryChallan({
     }
   };
 
-  // Helper for safe file name
   function safeFileName(str) {
     return String(str || '').replace(/[/\\:*?"<>|]/g, '_');
   }
@@ -387,23 +497,34 @@ export default function DeliveryChallan({
   return (
     <div className="dashboard-container" onKeyDown={(e) => handleEnterKeyNavigation(e, formRef.current)}>
       {/* Header bar */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', padding: '0.45rem 0.75rem' }}>
         <div>
-          <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Layers className="text-primary" size={26} /> 
-            Textile Delivery Challan (कपड़ा चालान)
+          <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '1.15rem' }}>
+            <Layers className="text-primary" size={20} /> 
+            Surat Power Loom Delivery Challan (सूरत कपड़ा चालान)
           </h1>
-          <p className="page-subtitle">
-            Taka (थान) &amp; Meter piece-wise challan with 72-taka capacity, broker tracking, and 2-in-1 print
+          <p className="page-subtitle" style={{ fontSize: '0.75rem' }}>
+            6-Column Piece &amp; Meter Taka List with column subtotals &amp; 2-in-1 print (Top &amp; Bottom copies on 1 A4 page)
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {activeTab === 'list' ? (
-            <button className="btn btn-primary" onClick={handleStartNew} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Plus size={18} /> New Challan (नया चालान)
-            </button>
+            <>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                onClick={handleLoadSuratSample}
+                title="Load Manoj Enterprise 48-Taka sample from PDF"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: '#1e40af' }}
+              >
+                <Sparkles size={14} /> Sample PDF (#52)
+              </button>
+              <button className="btn btn-primary" onClick={handleStartNew} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem' }}>
+                <Plus size={15} /> New Challan (नया चालान)
+              </button>
+            </>
           ) : (
-            <button className="btn btn-secondary" onClick={() => setActiveTab('list')}>
+            <button className="btn btn-secondary" onClick={() => setActiveTab('list')} style={{ fontSize: '0.78rem' }}>
               View All Challans (चालान सूची)
             </button>
           )}
@@ -412,29 +533,29 @@ export default function DeliveryChallan({
 
       {/* View Tabs */}
       {activeTab === 'list' && (
-        <div className="glass-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <div className="glass-panel" style={{ padding: '0.85rem', marginBottom: '1rem' }}>
           {/* Search and Filters */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
                 className="form-input"
                 placeholder="Search Challan No, Party, Broker, Lot..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                style={{ paddingLeft: '2.25rem' }}
+                style={{ paddingLeft: '1.9rem', fontSize: '0.8rem', height: '28px' }}
               />
             </div>
             <div>
-              <select className="form-input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <select className="form-input" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ fontSize: '0.8rem', height: '28px' }}>
                 <option value="all">All Status (सभी चालान)</option>
-                <option value="pending">Pending Billed (बिल बनना बाकी)</option>
+                <option value="pending">Pending Billed (बिल बाकी)</option>
                 <option value="billed">Billed / Invoiced (बिल बन गया)</option>
               </select>
             </div>
             <div>
-              <select className="form-input" value={brokerFilter} onChange={e => setBrokerFilter(e.target.value)}>
+              <select className="form-input" value={brokerFilter} onChange={e => setBrokerFilter(e.target.value)} style={{ fontSize: '0.8rem', height: '28px' }}>
                 <option value="all">All Brokers (सभी दलाल)</option>
                 {brokers.map(b => (
                   <option key={b.id} value={b.name}>{b.name}</option>
@@ -445,112 +566,119 @@ export default function DeliveryChallan({
 
           {/* Challans Table */}
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading challans...</div>
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading challans...</div>
           ) : filteredChallans.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', border: '1px dashed var(--border-color)', borderRadius: '10px' }}>
-              <Layers size={40} style={{ opacity: 0.3, marginBottom: '0.5rem' }} />
-              <p style={{ fontWeight: 600, margin: '0 0 0.5rem' }}>No delivery challans found</p>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                Create your first textile delivery challan with meter &amp; taka entries.
+            <div style={{ textAlign: 'center', padding: '2rem', border: '1px dashed var(--border)', borderRadius: '8px' }}>
+              <Layers size={32} style={{ opacity: 0.3, marginBottom: '0.35rem' }} />
+              <p style={{ fontWeight: 600, margin: '0 0 0.35rem', fontSize: '0.9rem' }}>No delivery challans found</p>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                Create a Surat powerloom piece-wise challan or test the Manoj Enterprise sample PDF.
               </p>
-              <button className="btn btn-primary" onClick={handleStartNew}>
-                <Plus size={16} /> Create Challan
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                <button className="btn btn-secondary" onClick={handleLoadSuratSample} style={{ fontSize: '0.8rem' }}>
+                  <Sparkles size={14} /> Load PDF Sample (#52)
+                </button>
+                <button className="btn btn-primary" onClick={handleStartNew} style={{ fontSize: '0.8rem' }}>
+                  <Plus size={14} /> Create Challan
+                </button>
+              </div>
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                 <thead>
-                  <tr style={{ background: 'var(--bg-tertiary)', textAlign: 'left', borderBottom: '2px solid var(--border-color)' }}>
-                    <th style={{ padding: '0.75rem' }}>Date</th>
-                    <th style={{ padding: '0.75rem' }}>Challan No</th>
-                    <th style={{ padding: '0.75rem' }}>Party (Buyer)</th>
-                    <th style={{ padding: '0.75rem' }}>Broker (दलाल)</th>
-                    <th style={{ padding: '0.75rem' }}>Item / Lot</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total Taka</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total Mtrs</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Amount (₹)</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Status</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Actions</th>
+                  <tr style={{ background: 'var(--bg-tertiary)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Date</th>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Challan No</th>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Party (Buyer)</th>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Broker (एजेंट)</th>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Item / Lot</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'right' }}>Total Taka</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'right' }}>Total Mtrs</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'right' }}>Amount (₹)</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Status</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredChallans.map((ch) => {
                     const isBilled = ch.status === 'billed';
                     return (
-                      <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '0.75rem' }}>{ch.challanDate}</td>
-                        <td style={{ padding: '0.75rem', fontWeight: 700, color: 'var(--primary)' }}>
+                      <tr key={ch.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '0.35rem 0.5rem' }}>{ch.challanDate}</td>
+                        <td style={{ padding: '0.35rem 0.5rem', fontWeight: 700, color: '#dc2626' }}>
                           #{ch.challanNumber}
                         </td>
-                        <td style={{ padding: '0.75rem', fontWeight: 600 }}>{ch.clientName}</td>
-                        <td style={{ padding: '0.75rem' }}>{ch.brokerName || '—'}</td>
-                        <td style={{ padding: '0.75rem' }}>
-                          <div>{ch.itemName || 'Fabric'}</div>
+                        <td style={{ padding: '0.35rem 0.5rem', fontWeight: 600 }}>{ch.clientName}</td>
+                        <td style={{ padding: '0.35rem 0.5rem', color: ch.brokerName ? '#dc2626' : 'var(--text-muted)' }}>
+                          {ch.brokerName || '—'}
+                        </td>
+                        <td style={{ padding: '0.35rem 0.5rem' }}>
+                          <div style={{ fontWeight: 600, color: '#1e40af' }}>{ch.itemName || 'Fabric'}</div>
                           {ch.lotNo && <small style={{ color: 'var(--text-muted)' }}>Lot: {ch.lotNo}</small>}
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 600 }}>
+                        <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', fontWeight: 700 }}>
                           {ch.totalTaka || 0} Pcs
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 700 }}>
-                          {ch.totalMeters?.toFixed(2) || '0.00'} m
+                        <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                          {Number(ch.totalMeters || 0).toFixed(2)} m
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                        <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', fontWeight: 600 }}>
                           {formatCurrency(ch.totalAmount || 0)}
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                        <td style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>
                           <span style={{
                             display: 'inline-block',
-                            padding: '0.2rem 0.6rem',
+                            padding: '0.15rem 0.5rem',
                             borderRadius: '999px',
-                            fontSize: '0.75rem',
+                            fontSize: '0.7rem',
                             fontWeight: 600,
                             background: isBilled ? 'var(--info-bg)' : 'var(--warn-bg)',
                             color: isBilled ? 'var(--info-text)' : 'var(--warn-text)',
                             border: `1px solid ${isBilled ? 'var(--info-border)' : 'var(--warn-border)'}`,
                           }}>
-                            {isBilled ? 'Billed / बिल बन गया' : 'Pending / पेंडिंग'}
+                            {isBilled ? 'Billed' : 'Pending'}
                           </span>
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center' }}>
+                        <td style={{ padding: '0.35rem 0.5rem', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'center' }}>
                             <button
-                              className="btn btn-secondary"
-                              title="Print Detailed Challan"
-                              onClick={() => {
-                                setPrintChallan(ch);
-                                setPrintMode('detailed');
-                              }}
-                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem' }}
-                            >
-                              <Printer size={14} /> Full
-                            </button>
-                            <button
-                              className="btn btn-secondary"
-                              title="Print 2-in-1 Half Page (2 Copies on 1 Page)"
+                              className="btn btn-primary"
+                              title="Print 2-in-1 Surat Standard (2 Copies on 1 Page)"
                               onClick={() => {
                                 setPrintChallan(ch);
                                 setPrintMode('two-in-one');
                               }}
-                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: '#16a34a' }}
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '2px' }}
                             >
-                              <Scissors size={14} /> 2-in-1
+                              <Scissors size={12} /> 2-in-1 Print
+                            </button>
+                            <button
+                              className="btn btn-secondary"
+                              title="Print Full Page Detailed Challan"
+                              onClick={() => {
+                                setPrintChallan(ch);
+                                setPrintMode('detailed');
+                              }}
+                              style={{ padding: '0.25rem 0.45rem', fontSize: '0.72rem' }}
+                            >
+                              <Printer size={12} /> 1-Page
                             </button>
                             {!isBilled && (
                               <button
-                                className="btn btn-primary"
-                                title="Convert to Bill / Invoice (चालान से बिल बनाएं)"
+                                className="btn btn-secondary"
+                                title="Convert to Bill / Invoice"
                                 onClick={() => handleConvertToBill(ch)}
-                                style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem' }}
+                                style={{ padding: '0.25rem 0.45rem', fontSize: '0.72rem', color: 'var(--primary)' }}
                               >
-                                <ArrowRight size={14} /> Make Bill
+                                <ArrowRight size={12} /> Bill
                               </button>
                             )}
                             <button
                               className="btn btn-secondary"
                               title="Edit"
                               onClick={() => handleEditChallan(ch)}
-                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem' }}
+                              style={{ padding: '0.25rem 0.4rem', fontSize: '0.72rem' }}
                             >
                               Edit
                             </button>
@@ -558,9 +686,9 @@ export default function DeliveryChallan({
                               className="btn btn-secondary"
                               title="Delete"
                               onClick={() => handleDeleteChallan(ch.id, ch.challanNumber)}
-                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: 'var(--danger)' }}
+                              style={{ padding: '0.25rem 0.4rem', fontSize: '0.72rem', color: 'var(--danger)' }}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={12} />
                             </button>
                           </div>
                         </td>
@@ -576,51 +704,59 @@ export default function DeliveryChallan({
 
       {/* Create / Edit Challan View */}
       {activeTab === 'new' && (
-        <form ref={formRef} onSubmit={handleSaveChallan} className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <FileText className="text-primary" size={20} />
-              {currentChallan.id ? `Edit Delivery Challan #${currentChallan.challanNumber}` : 'New Delivery Challan (नया चालान)'}
-            </h2>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setActiveTab('list')}>
+        <form ref={formRef} onSubmit={handleSaveChallan} className="glass-panel" style={{ padding: '0.85rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <FileText className="text-primary" size={18} />
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>
+                {currentChallan.id ? `Edit Delivery Challan #${currentChallan.challanNumber}` : 'New Surat Delivery Challan (नया चालान)'}
+              </h2>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleLoadSuratSample}
+                style={{ fontSize: '0.78rem', color: '#1e40af' }}
+              >
+                <Sparkles size={14} /> Sample (#52)
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setActiveTab('list')} style={{ fontSize: '0.78rem' }}>
                 Cancel
               </button>
-              <button type="submit" className="btn btn-primary">
+              <button type="submit" className="btn btn-primary" style={{ fontSize: '0.78rem' }}>
                 Save Challan (चालान सेव करें)
               </button>
             </div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            💡 <strong>Keyboard Shortcut:</strong> Press <strong>Enter</strong> in any field to move to the next field automatically! In the Taka grid below, press Enter after typing meters to jump straight to the next piece.
-          </div>
-
           {/* Challan Meta Fields */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Challan No (चालान नं) *</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Challan No (चालान नं) *</label>
               <input
                 type="text"
                 className="form-input"
                 required
                 value={currentChallan.challanNumber}
                 onChange={e => setCurrentChallan({ ...currentChallan, challanNumber: e.target.value })}
-                placeholder="e.g. 101 or DC-101"
+                placeholder="e.g. 52 or 101"
+                style={{ fontSize: '0.82rem', height: '28px', fontWeight: 700 }}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Challan Date (तारीख) *</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Challan Date (तारीख) *</label>
               <input
                 type="date"
                 className="form-input"
                 required
                 value={currentChallan.challanDate}
                 onChange={e => setCurrentChallan({ ...currentChallan, challanDate: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Party / Buyer Name (पार्टी) *</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Party Name (खरीददार पार्टी) *</label>
               <input
                 type="text"
                 className="form-input"
@@ -628,60 +764,116 @@ export default function DeliveryChallan({
                 list="client-suggestions"
                 value={currentChallan.clientName}
                 onChange={e => handleSelectClient(e.target.value)}
-                placeholder="Select or enter party name"
+                placeholder="e.g. RAJ RATAN FASHION"
+                style={{ fontSize: '0.82rem', height: '28px', fontWeight: 600 }}
               />
               <datalist id="client-suggestions">
                 {clients.map(c => <option key={c.id} value={c.name} />)}
               </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Broker (दलाल / एजेंट)</span>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Party GSTIN</label>
+              <input
+                type="text"
+                className="form-input"
+                value={currentChallan.clientGstin}
+                onChange={e => setCurrentChallan({ ...currentChallan, clientGstin: e.target.value.toUpperCase() })}
+                placeholder="e.g. 24AUCPS7939J1Z3"
+                style={{ fontSize: '0.82rem', height: '28px' }}
+              />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
+                <span>Agent / Broker (दलाल)</span>
                 <button
                   type="button"
                   onClick={() => setShowBrokerModal(true)}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600 }}
                 >
-                  + Add Broker
+                  + Add
                 </button>
               </label>
-              <select
+              <input
+                type="text"
                 className="form-input"
+                list="broker-suggestions"
+                placeholder="e.g. JAGDISH PUROHIT"
                 value={currentChallan.brokerName}
                 onChange={e => setCurrentChallan({ ...currentChallan, brokerName: e.target.value })}
-              >
-                <option value="">Direct (No Broker)</option>
+                style={{ fontSize: '0.82rem', height: '28px' }}
+              />
+              <datalist id="broker-suggestions">
                 {brokers.map(b => (
-                  <option key={b.id} value={b.name}>{b.name}</option>
+                  <option key={b.id} value={b.name} />
                 ))}
-              </select>
+              </datalist>
+            </div>
+          </div>
+
+          {/* Party Market Address */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Party Surat Market Address (दुकान / मार्केट नं)</label>
+              <input
+                type="text"
+                className="form-input"
+                list="surat-market-suggestions"
+                placeholder="e.g. SHOP NO-1664-1665, RADHA KRISHNA MARKET, RING ROAD, SURAT"
+                value={currentChallan.clientAddress}
+                onChange={e => setCurrentChallan({ ...currentChallan, clientAddress: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px' }}
+              />
+              <datalist id="surat-market-suggestions">
+                {SURAT_MARKET_PRESETS.map((m, i) => (
+                  <option key={i} value={m} />
+                ))}
+              </datalist>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Station / City (स्टेशन)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="SURAT"
+                value={currentChallan.station}
+                onChange={e => setCurrentChallan({ ...currentChallan, station: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px' }}
+              />
             </div>
           </div>
 
           {/* Textile Goods Info */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem', background: 'var(--bg-secondary)', padding: '1rem', borderRadius: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem', background: 'var(--bg-secondary)', padding: '0.6rem 0.75rem', borderRadius: '8px' }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Item / Quality Name (क्वालिटी)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Item / Quality Name (क्वालिटी)</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Cotton 60x60, Rayon 14kg"
+                list="quality-suggestions"
+                placeholder="e.g. D FIYONA 8.500 (REL*REL)"
                 value={currentChallan.itemName}
                 onChange={e => setCurrentChallan({ ...currentChallan, itemName: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px', fontWeight: 600 }}
               />
+              <datalist id="quality-suggestions">
+                {SURAT_QUALITY_PRESETS.map((q, i) => (
+                  <option key={i} value={q} />
+                ))}
+              </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Lot No (लॉट नं)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Lot No (लॉट नं)</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. LOT-402"
+                placeholder="e.g. 3 or LOT-402"
                 value={currentChallan.lotNo}
                 onChange={e => setCurrentChallan({ ...currentChallan, lotNo: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px', fontWeight: 700, color: '#dc2626' }}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Rate per Meter (₹ दर)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Rate per Meter (₹ दर)</label>
               <input
                 type="number"
                 step="0.01"
@@ -689,57 +881,46 @@ export default function DeliveryChallan({
                 placeholder="₹ / Meter"
                 value={currentChallan.ratePerMeter}
                 onChange={e => setCurrentChallan({ ...currentChallan, ratePerMeter: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Transport / Lorry No</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Transport / Tempo No</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Gujarat Roadways / GJ-05-AB-1234"
+                placeholder="e.g. LOCAL TEMPO / GJ-05-XX-1234"
                 value={currentChallan.transportName}
                 onChange={e => setCurrentChallan({ ...currentChallan, transportName: e.target.value })}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Station / Destination</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. Surat, Ahmedabad, Delhi"
-                value={currentChallan.station}
-                onChange={e => setCurrentChallan({ ...currentChallan, station: e.target.value })}
+                style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
           </div>
 
           {/* 72 Taka Grid Section */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div style={{ marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', flexWrap: 'wrap', gap: '0.4rem' }}>
               <div>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>
-                  Piece &amp; Meter Taka List (अधिकतम 72 ताका एंट्री)
+                <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: 0 }}>
+                  Piece &amp; Meter Taka List (6 Columns × 12 Rows = 72 Taka Capacity)
                 </h3>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Type meter value and press <strong>Enter</strong> to jump to next Taka cell.
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Type meter and press <strong>Enter</strong> to jump straight to next piece.
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.35rem' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
-                  onClick={async () => {
-                    const text = prompt('Paste space, comma, or line-separated meters (e.g. 98.5, 102.3, 105.0):');
-                    if (text) handleBulkPaste(text);
-                  }}
+                  style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}
+                  onClick={() => setShowPasteModal(true)}
                 >
-                  📋 Bulk Paste Meters
+                  <ClipboardPaste size={13} /> Bulk Paste
                 </button>
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', color: 'var(--danger)' }}
+                  style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem', color: 'var(--danger)' }}
                   onClick={async () => {
                     const ok = await confirmAction({
                       title: 'Clear Taka Grid?',
@@ -747,91 +928,99 @@ export default function DeliveryChallan({
                       confirmLabel: 'Clear All',
                       danger: true,
                     });
-                    if (ok) setCurrentChallan({ ...currentChallan, takaList: Array(72).fill('') });
+                    if (ok) setCurrentChallan({ ...currentChallan, takaList: Array(72).fill(''), lotList: Array(72).fill('') });
                   }}
                 >
-                  ✕ Clear All
+                  ✕ Clear
                 </button>
               </div>
             </div>
 
             {/* Live Tally Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
-              <div style={{ background: 'var(--primary-light)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid rgba(37,99,235,0.2)' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>TOTAL TAKA (कुल थान)</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>{totalTaka} <small style={{ fontSize: '0.8rem', fontWeight: 500 }}>/ 72</small></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.45rem', marginBottom: '0.65rem' }}>
+              <div style={{ background: 'var(--primary-light)', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid rgba(37,99,235,0.2)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--primary)' }}>TOTAL TAKA (थान)</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>{totalTaka} <small style={{ fontSize: '0.75rem', fontWeight: 500 }}>/ 72</small></div>
               </div>
-              <div style={{ background: 'rgba(5,150,105,0.08)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid rgba(5,150,105,0.2)' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#059669' }}>TOTAL METERS (कुल मीटर)</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#059669' }}>{totalMeters.toFixed(2)} <small style={{ fontSize: '0.8rem', fontWeight: 500 }}>Mtr</small></div>
+              <div style={{ background: 'rgba(5,150,105,0.08)', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid rgba(5,150,105,0.2)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#059669' }}>TOTAL METERS (कुल मीटर)</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#059669' }}>{totalMeters.toFixed(2)} <small style={{ fontSize: '0.72rem', fontWeight: 500 }}>Mtr</small></div>
               </div>
-              <div style={{ background: 'var(--bg-tertiary)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>AVERAGE / TAKA</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>{avgMeter.toFixed(2)} <small style={{ fontSize: '0.8rem', fontWeight: 500 }}>Mtr</small></div>
+              <div style={{ background: 'var(--bg-tertiary)', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-secondary)' }}>AVERAGE / TAKA</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>{avgMeter.toFixed(2)} <small style={{ fontSize: '0.72rem', fontWeight: 500 }}>Mtr</small></div>
               </div>
-              <div style={{ background: 'rgba(124,58,237,0.08)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid rgba(124,58,237,0.2)' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--purple)' }}>TOTAL ESTIMATED VALUE</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--purple)' }}>{formatCurrency(totalAmount)}</div>
+              <div style={{ background: 'rgba(124,58,237,0.08)', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid rgba(124,58,237,0.2)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--purple)' }}>ESTIMATED TOTAL</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--purple)' }}>{formatCurrency(totalAmount)}</div>
               </div>
             </div>
 
-            {/* 6 Columns Grid: Sr No 1 to 12 Up-to-Down per Column with zero padding and no arrows */}
+            {/* 6 Columns Grid: Sr No 1 to 12 Up-to-Down per Column */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(6, minmax(140px, 1fr))',
-              gap: '0.35rem',
-              maxHeight: '500px',
-              overflowY: 'auto',
-              padding: '0.4rem',
-              background: 'var(--bg-tertiary)',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
+              gridTemplateColumns: 'repeat(6, 1fr)',
+              gap: '4px',
+              overflowX: 'auto',
+              background: 'var(--bg-primary)',
+              padding: '6px',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
             }}>
               {Array.from({ length: 6 }).map((_, colIdx) => (
-                <div key={colIdx} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <div style={{ background: 'var(--primary)', color: '#fff', padding: '0.25rem', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, borderRadius: '4px' }}>
-                    Col #{colIdx + 1} (Sr 1-12)
+                <div 
+                  key={colIdx} 
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '4px',
+                    padding: '4px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    minWidth: '105px',
+                  }}
+                >
+                  <div style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    padding: '2px 0',
+                    borderBottom: '1px solid var(--border)',
+                    color: 'var(--primary)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    paddingInline: '4px'
+                  }}>
+                    <span>Srl</span>
+                    <span>Meters</span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 1fr', gap: '2px', padding: '1px 2px', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                    <span>Sr</span>
-                    <span>Lot</span>
-                    <span style={{ textAlign: 'right' }}>Mtr</span>
-                  </div>
+
                   {Array.from({ length: 12 }).map((__, rowIdx) => {
                     const idx = colIdx * 12 + rowIdx;
                     const val = currentChallan.takaList[idx] || '';
-                    const lotVal = currentChallan.lotList?.[idx] || '';
                     const isFilled = parseFloat(val) > 0;
                     return (
                       <div 
                         key={idx} 
                         style={{
                           background: isFilled ? 'var(--card-bg)' : 'transparent',
-                          border: isFilled ? '1px solid var(--primary)' : '1px dashed var(--border-color)',
-                          borderRadius: '4px',
-                          padding: '1px 2px',
+                          border: isFilled ? '1px solid var(--primary)' : '1px dashed var(--border)',
+                          borderRadius: '3px',
+                          padding: '1px 3px',
                           display: 'grid',
-                          gridTemplateColumns: '20px 1fr 1fr',
+                          gridTemplateColumns: '22px 1fr',
                           gap: '2px',
                           alignItems: 'center',
+                          height: '24px',
                         }}
                       >
                         <span style={{
-                          fontSize: '0.7rem',
+                          fontSize: '0.68rem',
                           fontWeight: 700,
                           color: isFilled ? 'var(--primary)' : 'var(--text-muted)',
                         }}>
-                          {rowIdx + 1}.
+                          {idx + 1}.
                         </span>
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="Lot"
-                          value={lotVal}
-                          onChange={e => handleLotChange(idx, e.target.value)}
-                          title="Lot No (repeats until next Lot entered)"
-                          style={{ padding: '1px 2px', fontSize: '0.7rem', textAlign: 'center', background: 'transparent', height: '24px' }}
-                        />
                         <input
                           type="text"
                           inputMode="decimal"
@@ -839,44 +1028,102 @@ export default function DeliveryChallan({
                           placeholder="0.00"
                           value={val}
                           onChange={e => handleTakaChange(idx, e.target.value)}
-                          title="Enter Meter directly (e.g. 102.25, 130.25, 105, 105.75)"
+                          title="Enter Meter (e.g. 120.00)"
                           style={{
-                            padding: '1px 2px',
-                            fontSize: '0.78rem',
+                            padding: '1px 4px',
+                            fontSize: '0.76rem',
                             fontWeight: isFilled ? 700 : 400,
                             textAlign: 'right',
                             background: 'transparent',
                             border: 'none',
-                            height: '24px',
+                            height: '22px',
+                            fontVariantNumeric: 'tabular-nums',
                           }}
                         />
                       </div>
                     );
                   })}
+
+                  {/* Live Column Subtotal */}
+                  <div style={{
+                    marginTop: '2px',
+                    padding: '3px 4px',
+                    background: 'var(--bg-tertiary)',
+                    borderTop: '1px solid var(--border)',
+                    borderRadius: '2px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                  }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Sub:</span>
+                    <span style={{ color: columnSubtotals[colIdx]?.total > 0 ? '#059669' : 'inherit' }}>
+                      {columnSubtotals[colIdx]?.total.toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Notes and Actions */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', alignItems: 'flex-start' }}>
+          {/* Weaving Defect Disclaimer / Notes & Actions */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.75rem', alignItems: 'flex-start' }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Remarks / Terms (नोट)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem' }}>Weaving Terms / Disclaimer (सूरत पावरलूम गारंटी नोट)</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Goods dispatched for folding / dyeing / jobwork / approval"
+                placeholder="NO ANY WIVING DEFECT GURANTEE ON GREY SO CHEK AND SEND MILL......ONLY PRINT QUALITY"
                 value={currentChallan.notes}
                 onChange={e => setCurrentChallan({ ...currentChallan, notes: e.target.value })}
+                style={{ fontSize: '0.78rem', height: '28px', color: '#dc2626', fontWeight: 600 }}
               />
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.65rem' }}>
-              <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem 1.5rem', fontWeight: 700 }}>
+            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '1.25rem' }}>
+              <button type="submit" className="btn btn-primary" style={{ padding: '0.45rem 1.1rem', fontWeight: 700, fontSize: '0.82rem' }}>
                 Save Challan
               </button>
             </div>
           </div>
         </form>
+      )}
+
+      {/* Bulk Paste Modal */}
+      {showPasteModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div className="modal-content" style={{ maxWidth: '420px', width: '90%', padding: '1.25rem', borderRadius: '10px', background: 'var(--card-bg)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <ClipboardPaste size={16} /> Bulk Paste Meters (ताका मीटर पेस्ट करें)
+              </h3>
+              <button type="button" onClick={() => setShowPasteModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={16} />
+              </button>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+              Paste space, comma, or newline-separated meters copied from WhatsApp, Excel, or folding slips:
+            </p>
+            <textarea
+              className="form-input"
+              rows={6}
+              placeholder="e.g. 120.00 121.00 121.50 122.00 122.75 123.50..."
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              style={{ width: '100%', fontSize: '0.8rem', padding: '0.5rem', fontFamily: 'monospace' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', marginTop: '0.75rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowPasteModal(false)} style={{ fontSize: '0.8rem' }}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleApplyPaste} style={{ fontSize: '0.8rem' }}>
+                Apply Meters
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add Broker Modal */}
@@ -885,37 +1132,39 @@ export default function DeliveryChallan({
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
         }}>
-          <div className="modal-content" style={{ maxWidth: '400px', width: '90%', padding: '1.5rem', borderRadius: '12px', background: 'var(--card-bg)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Add New Broker (नया दलाल)</h3>
+          <div className="modal-content" style={{ maxWidth: '380px', width: '90%', padding: '1.25rem', borderRadius: '10px', background: 'var(--card-bg)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Add New Broker (दलाल / एजेंट)</h3>
               <button type="button" onClick={() => setShowBrokerModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
-            <div className="form-group">
-              <label className="form-label">Broker Name *</label>
+            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Broker Name *</label>
               <input
                 type="text"
                 className="form-input"
                 required
                 value={newBrokerName}
                 onChange={e => setNewBrokerName(e.target.value)}
-                placeholder="e.g. Ramesh Bhai Broker"
+                placeholder="e.g. JAGDISH PUROHIT"
+                style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">Phone Number</label>
+            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Phone Number</label>
               <input
                 type="tel"
                 className="form-input"
                 value={newBrokerPhone}
                 onChange={e => setNewBrokerPhone(e.target.value)}
                 placeholder="e.g. 9825012345"
+                style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowBrokerModal(false)}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={handleSaveBroker}>Save Broker</button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', marginTop: '0.75rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowBrokerModal(false)} style={{ fontSize: '0.8rem' }}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={handleSaveBroker} style={{ fontSize: '0.8rem' }}>Save Broker</button>
             </div>
           </div>
         </div>
@@ -926,196 +1175,108 @@ export default function DeliveryChallan({
         <div className="modal-overlay" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          padding: '1rem',
+          padding: '0.5rem',
         }}>
           <div className="modal-content" style={{
-            maxWidth: '850px', width: '100%', maxHeight: '92vh', overflowY: 'auto',
-            background: '#ffffff', color: '#0f172a', padding: '1.5rem', borderRadius: '12px'
+            maxWidth: '850px', width: '100%', maxHeight: '96vh', overflowY: 'auto',
+            background: '#ffffff', color: '#0f172a', padding: '1rem', borderRadius: '8px'
           }}>
             {/* Modal Actions Bar (Not Printed) */}
-            <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <strong>Print Format:</strong>
-                <button
-                  type="button"
-                  className={`btn ${printMode === 'detailed' ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => setPrintMode('detailed')}
-                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
-                >
-                  Full Challan + 72 Taka
-                </button>
+            <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: '0.82rem' }}>Print Format:</strong>
                 <button
                   type="button"
                   className={`btn ${printMode === 'two-in-one' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setPrintMode('two-in-one')}
-                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', color: printMode !== 'two-in-one' ? '#16a34a' : 'inherit' }}
+                  style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem', fontWeight: printMode === 'two-in-one' ? 700 : 500 }}
                 >
-                  ✂ 2-in-1 (Top &amp; Bottom Copies)
+                  ✂ 2 Copies on 1 Page (Surat Mill Standard)
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${printMode === 'detailed' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setPrintMode('detailed')}
+                  style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}
+                >
+                  1 Full Page Detailed
                 </button>
               </div>
 
-              {printMode === 'detailed' && (
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <ArrowUpDown size={14} />
-                  <span style={{ fontSize: '0.8rem' }}>Meters Sort:</span>
-                  <select
-                    className="form-input"
-                    value={meterSort}
-                    onChange={e => setMeterSort(e.target.value)}
-                    style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', width: 'auto' }}
-                  >
-                    <option value="as-is">As Entered (मूल क्रम)</option>
-                    <option value="asc">Ascending (चढ़ता क्रम)</option>
-                    <option value="desc">Descending (उतरता क्रम)</option>
-                  </select>
-                </div>
-              )}
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Sort:</span>
+                <select
+                  className="form-input"
+                  value={meterSort}
+                  onChange={e => setMeterSort(e.target.value)}
+                  style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem', width: 'auto', height: '26px' }}
+                >
+                  <option value="as-is">As Entered (मूल क्रम)</option>
+                  <option value="asc">Ascending (चढ़ता क्रम)</option>
+                  <option value="desc">Descending (उतरता क्रम)</option>
+                </select>
 
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   type="button"
                   className="btn btn-primary"
                   onClick={() => window.print()}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}
                 >
-                  <Printer size={16} /> Print (Ctrl+P)
+                  <Printer size={14} /> Print (Ctrl+P)
                 </button>
                 <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setPrintChallan(null)}
+                  style={{ fontSize: '0.78rem', padding: '0.3rem 0.5rem' }}
                 >
-                  <X size={16} /> Close
+                  <X size={14} />
                 </button>
               </div>
             </div>
 
             {/* Print Document Body */}
-            <div id="printable-challan" style={{ background: '#ffffff', color: '#111827', fontFamily: 'system-ui, sans-serif' }}>
-              {printMode === 'detailed' ? (
-                /* FORMAT 1: FULL DETAILED CHALLAN & TAKA LIST */
-                <div style={{ border: '2px solid #0f172a', padding: '1.25rem', borderRadius: '4px' }}>
-                  {/* Company Header */}
-                  <div style={{ textAlign: 'center', borderBottom: '2px solid #0f172a', paddingBottom: '0.75rem', marginBottom: '0.75rem' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>DELIVERY CHALLAN / कपड़ा चालान</div>
-                    <h2 style={{ margin: '0.2rem 0', fontSize: '1.6rem', fontWeight: 800, color: '#1e40af' }}>
-                      {activeCompany?.businessName || profile?.businessName || 'TEXTILE TRADERS'}
-                    </h2>
-                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#4b5563' }}>
-                      {activeCompany?.address || profile?.address || ''} {activeCompany?.state || profile?.state ? `, ${activeCompany?.state || profile?.state}` : ''}
-                    </p>
-                    <p style={{ margin: '0.15rem 0 0', fontSize: '0.85rem', fontWeight: 600 }}>
-                      GSTIN: {activeCompany?.gstin || profile?.gstin || '—'} | Phone: {activeCompany?.phone || profile?.phone || '—'}
-                    </p>
-                  </div>
-
-                  {/* Challan Meta Details Box */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', border: '1px solid #94a3b8', borderRadius: '4px', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
-                    <div style={{ padding: '0.6rem 0.8rem', borderRight: '1px solid #94a3b8' }}>
-                      <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>Consignee / Party (खरीददार):</div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>{printChallan.clientName}</div>
-                      {printChallan.clientAddress && <div>{printChallan.clientAddress}</div>}
-                      {printChallan.clientGstin && <div><strong>GSTIN:</strong> {printChallan.clientGstin}</div>}
-                      {printChallan.clientPhone && <div><strong>Phone:</strong> {printChallan.clientPhone}</div>}
-                    </div>
-                    <div style={{ padding: '0.6rem 0.8rem' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '0.25rem' }}>
-                        <strong>Challan No:</strong>
-                        <span style={{ fontWeight: 800, color: '#1e40af' }}>#{printChallan.challanNumber}</span>
-                        <strong>Date:</strong>
-                        <span>{printChallan.challanDate}</span>
-                        <strong>Broker:</strong>
-                        <span>{printChallan.brokerName || 'Direct'}</span>
-                        <strong>Transport:</strong>
-                        <span>{printChallan.transportName || '—'}</span>
-                        <strong>Destination:</strong>
-                        <span>{printChallan.station || '—'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quality & Lot Banner */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', background: '#f1f5f9', padding: '0.5rem 0.8rem', border: '1px solid #cbd5e1', borderRadius: '4px', marginBottom: '0.75rem', fontSize: '0.88rem' }}>
-                    <div><strong>Item / Quality:</strong> {printChallan.itemName || 'Textile Fabric'}</div>
-                    {printChallan.lotNo && <div><strong>Lot No:</strong> {printChallan.lotNo}</div>}
-                    {printChallan.ratePerMeter && <div><strong>Rate:</strong> ₹{parseFloat(printChallan.ratePerMeter).toFixed(2)}/mtr</div>}
-                  </div>
-
-                  {/* Sorted Taka Grid (6 Columns Table) */}
-                  <div style={{ marginBottom: '0.75rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', fontSize: '0.8rem', fontWeight: 700 }}>
-                      <span>PIECE &amp; METER PACKING LIST:</span>
-                      <span style={{ color: '#64748b' }}>Order: {meterSort === 'asc' ? 'Ascending' : meterSort === 'desc' ? 'Descending' : 'As Entered'}</span>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '4px', border: '1px solid #94a3b8', padding: '6px', borderRadius: '4px' }}>
-                      {sortedTakaEntries.map((item, idx) => (
-                        <div key={idx} style={{ border: '1px solid #e2e8f0', padding: '2px 4px', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', background: idx % 2 === 0 ? '#f8fafc' : '#ffffff' }}>
-                          <span style={{ color: '#64748b', fontWeight: 600 }}>{idx + 1}.</span>
-                          <span style={{ fontWeight: 800 }}>{item.meter.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Summary Totals */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', border: '2px solid #0f172a', background: '#f8fafc', padding: '0.75rem', borderRadius: '4px', textAlign: 'center', marginBottom: '1rem' }}>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>TOTAL TAKA (कुल थान)</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{printChallan.totalTaka || sortedTakaEntries.length} Pcs</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>TOTAL METERS (कुल मीटर)</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#059669' }}>
-                        {(printChallan.totalMeters || sortedTakaEntries.reduce((s, i) => s + i.meter, 0)).toFixed(2)} Mtr
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>ESTIMATED TOTAL (रकम)</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e40af' }}>
-                        {formatCurrency(printChallan.totalAmount || 0)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Signatures */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2.5rem', paddingTop: '1rem', borderTop: '1px dashed #cbd5e1', fontSize: '0.85rem' }}>
-                    <div style={{ textAlign: 'center', width: '200px' }}>
-                      <div style={{ borderTop: '1px solid #0f172a', paddingTop: '0.25rem', fontWeight: 600 }}>Receiver's Signature (हस्ताक्षर)</div>
-                    </div>
-                    <div style={{ textAlign: 'center', width: '220px' }}>
-                      <div style={{ fontSize: '0.8rem', marginBottom: '1.5rem', fontWeight: 600 }}>For {activeCompany?.businessName || profile?.businessName || 'Textile Traders'}</div>
-                      <div style={{ borderTop: '1px solid #0f172a', paddingTop: '0.25rem', fontWeight: 700 }}>Authorized Signatory</div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* FORMAT 2: 2-IN-1 HALF PAGE PRINT (1 PAGE TOP & BOTTOM 2 PRINTS) */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {/* COPY 1: TOP (Consignee Copy) */}
-                  <HalfChallanSlip
+            <div id="printable-challan" style={{ background: '#ffffff', color: '#111827', fontFamily: 'Arial, sans-serif' }}>
+              {printMode === 'two-in-one' ? (
+                /* FORMAT: 2 COPIES ON 1 A4 PAGE (SURAT POWER LOOM STANDARD) */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {/* TOP COPY: ORIGINAL (PARTY / MILL COPY) */}
+                  <SuratChallanDoc
                     challan={printChallan}
                     company={activeCompany || profile}
-                    copyLabel="CONSIGNEE / TRANSPORT COPY (पार्टी / ट्रांसपोर्ट प्रति)"
+                    takaEntries={sortedTakaEntries}
+                    copyBadge="ORIGINAL - PARTY / MILL COPY"
+                    isCompact={true}
                   />
 
-                  {/* Scissor Cut Line */}
+                  {/* SCISSOR CUT LINE */}
                   <div style={{
-                    display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.4rem 0',
-                    color: '#64748b', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase'
+                    display: 'flex', alignItems: 'center', gap: '0.4rem', margin: '2px 0',
+                    color: '#64748b', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase'
                   }}>
                     <span style={{ flex: 1, borderTop: '1px dashed #94a3b8' }} />
-                    <Scissors size={14} /> ✂ CUT HERE / यहाँ से काटें ✂
+                    <Scissors size={12} /> ✂ CUT HERE / यहाँ से काटें ✂
                     <span style={{ flex: 1, borderTop: '1px dashed #94a3b8' }} />
                   </div>
 
-                  {/* COPY 2: BOTTOM (Office Copy) */}
-                  <HalfChallanSlip
+                  {/* BOTTOM COPY: DUPLICATE (TRANSPORT / DRIVER COPY) */}
+                  <SuratChallanDoc
                     challan={printChallan}
                     company={activeCompany || profile}
-                    copyLabel="OFFICE / MILL COPY (कार्यालय / मिल प्रति)"
+                    takaEntries={sortedTakaEntries}
+                    copyBadge="DUPLICATE - TRANSPORT / DRIVER COPY"
+                    isCompact={true}
                   />
                 </div>
+              ) : (
+                /* FORMAT: SINGLE FULL PAGE DETAILED CHALLAN */
+                <SuratChallanDoc
+                  challan={printChallan}
+                  company={activeCompany || profile}
+                  takaEntries={sortedTakaEntries}
+                  copyBadge="ORIGINAL - PARTY COPY"
+                  isCompact={false}
+                />
               )}
             </div>
           </div>
@@ -1125,83 +1286,342 @@ export default function DeliveryChallan({
   );
 }
 
-// 2-in-1 Compact Slip Component
-function HalfChallanSlip({ challan, company, copyLabel }) {
+// Surat Power Loom Exact Delivery Challan matching Manoj Enterprise Sample PDF
+function SuratChallanDoc({ challan, company, takaEntries, copyBadge, isCompact }) {
+  // Compute column entries & column subtotals across 6 columns
+  const cols = useMemo(() => {
+    const columns = Array.from({ length: 6 }, () => []);
+    const subtotals = [0, 0, 0, 0, 0, 0];
+
+    takaEntries.forEach((entry, idx) => {
+      const colIdx = Math.floor(idx / 12);
+      if (colIdx < 6) {
+        columns[colIdx].push(entry);
+        subtotals[colIdx] += entry.meter;
+      }
+    });
+
+    return { columns, subtotals };
+  }, [takaEntries]);
+
+  const totalTakas = takaEntries.length || challan.totalTaka || 0;
+  const grandTotalMeters = takaEntries.reduce((s, i) => s + i.meter, 0) || challan.totalMeters || 0;
+
+  // Format date DD/MM/YYYY
+  const formattedDate = useMemo(() => {
+    if (!challan.challanDate) return '';
+    const parts = challan.challanDate.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return challan.challanDate;
+  }, [challan.challanDate]);
+
+  const companyName = company?.businessName || challan.companyName || 'MANOJ ENTERPRISE';
+  const companyAddress = company?.address || 'PLOT NO. 145, HARIOM INDUSTRIAL SOCIETY NO. 1, BAMROLI, SURAT SURAT';
+  const companyGstin = company?.gstin || challan.companyGstin || '24AAVPP7272Q1ZK';
+  const companyPhone = company?.phone || 'PAYMENT - 9427809821 Mobile : 8200290410';
+
+  const pad = isCompact ? '2px 4px' : '4px 6px';
+  const fontSize = isCompact ? '8.5px' : '11px';
+
   return (
-    <div style={{ border: '2px solid #0f172a', padding: '0.85rem 1rem', borderRadius: '4px', background: '#ffffff', fontSize: '0.82rem' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #0f172a', paddingBottom: '0.4rem', marginBottom: '0.4rem' }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e40af' }}>
-            {company?.businessName || 'TEXTILE TRADERS'}
-          </h3>
-          <p style={{ margin: 0, fontSize: '0.75rem', color: '#4b5563' }}>
-            {company?.address || ''} | GSTIN: {company?.gstin || '—'} | Ph: {company?.phone || '—'}
-          </p>
+    <div style={{
+      border: '1.5px solid #000',
+      padding: isCompact ? '4px 8px' : '10px 14px',
+      background: '#fff',
+      color: '#000',
+      fontSize,
+      lineHeight: 1.25,
+      boxSizing: 'border-box',
+    }}>
+      {/* Top Bar: Religious Inscription + Copy Badge */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1px' }}>
+        <span style={{ fontSize: isCompact ? '8px' : '10px', fontWeight: 700, color: '#dc2626' }}>॥ श्री: ॥</span>
+        <span style={{
+          fontSize: isCompact ? '7.5px' : '9.5px',
+          fontWeight: 700,
+          background: '#f1f5f9',
+          border: '1px solid #cbd5e1',
+          padding: '0 4px',
+          borderRadius: '3px',
+          textTransform: 'uppercase'
+        }}>
+          {copyBadge}
+        </span>
+      </div>
+
+      {/* Mill / Firm Header */}
+      <div style={{ textAlign: 'center', marginBottom: '2px' }}>
+        <h2 style={{
+          margin: 0,
+          fontSize: isCompact ? '15px' : '20px',
+          fontWeight: 900,
+          color: '#0000ff', // Match Manoj Enterprise blue
+          letterSpacing: '0.04em',
+        }}>
+          {companyName}
+        </h2>
+        <div style={{ fontSize: isCompact ? '8px' : '10px', color: '#400040', fontWeight: 600 }}>
+          {companyAddress}
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <span style={{ display: 'inline-block', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '1px 6px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 800 }}>
-            {copyLabel}
-          </span>
-          <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e40af', marginTop: '2px' }}>
-            CHALLAN #{challan.challanNumber}
+        <div style={{ fontSize: isCompact ? '8.5px' : '10.5px', marginTop: '1px' }}>
+          <strong style={{ color: '#ff0000' }}>GST NO : {companyGstin}</strong>
+          <span style={{ marginLeft: '10px', color: '#400040' }}>Phone : {companyPhone}</span>
+        </div>
+      </div>
+
+      {/* Boxed Title: DELIVERY CHALLAN */}
+      <div style={{ textAlign: 'center', margin: isCompact ? '1px 0 3px' : '3px 0 5px' }}>
+        <span style={{
+          display: 'inline-block',
+          border: '1.5px solid #000',
+          padding: isCompact ? '1px 16px' : '2px 24px',
+          fontWeight: 900,
+          fontSize: isCompact ? '10px' : '13px',
+          color: '#000080',
+          letterSpacing: '0.08em',
+        }}>
+          DELIVERY CHALLAN
+        </span>
+      </div>
+
+      {/* Two-Column Party & Challan Box */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1.4fr 1fr',
+        border: '1px solid #000',
+        marginBottom: '2px',
+      }}>
+        {/* Left: Party Details */}
+        <div style={{ padding: pad, borderRight: '1px solid #000' }}>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <strong>Party :</strong>
+            <span style={{ fontWeight: 800, color: '#000080', fontSize: isCompact ? '9.5px' : '12px' }}>
+              {challan.clientName}
+            </span>
           </div>
-          <div style={{ fontSize: '0.78rem' }}>Date: {challan.challanDate}</div>
+          <div style={{ fontSize: isCompact ? '8px' : '10px', color: '#444', marginTop: '1px', textTransform: 'uppercase' }}>
+            {challan.clientAddress || 'SURAT'}
+          </div>
+          <div style={{ marginTop: '1px', fontSize: isCompact ? '8.5px' : '10.5px' }}>
+            <strong style={{ color: '#400040' }}>GST NO : </strong>
+            <span style={{ fontWeight: 800, color: '#400040' }}>{challan.clientGstin || '—'}</span>
+          </div>
+        </div>
+
+        {/* Right: Challan No, Date, Agent */}
+        <div style={{ padding: pad, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '1px' }}>
+            <strong>Challan No.:</strong>
+            <strong style={{ color: '#ff0000', fontSize: isCompact ? '10px' : '12px' }}>
+              {challan.challanNumber}
+            </strong>
+
+            <strong>Date :</strong>
+            <span>{formattedDate}</span>
+
+            <strong style={{ color: '#ff0000' }}>Agent :-</strong>
+            <strong style={{ color: '#ff0000' }}>
+              {challan.brokerName || '—'}
+            </strong>
+          </div>
         </div>
       </div>
 
-      {/* Meta Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.5rem', marginBottom: '0.4rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+      {/* Quality Row */}
+      <div style={{
+        border: '1px solid #000',
+        borderTop: 'none',
+        padding: pad,
+        marginBottom: '2px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}>
         <div>
-          <strong>Party:</strong> <span style={{ fontWeight: 800 }}>{challan.clientName}</span>
-          {challan.clientGstin && <span style={{ fontSize: '0.75rem', marginLeft: '6px' }}>(GSTIN: {challan.clientGstin})</span>}
-          {challan.station && <div><strong>Station:</strong> {challan.station}</div>}
+          <strong>Quality : </strong>
+          <span style={{ fontWeight: 800, color: '#0000ff' }}>
+            {challan.itemName || 'D FIYONA 8.500 (REL*REL)'}
+          </span>
+        </div>
+        {challan.station && (
+          <div style={{ fontSize: isCompact ? '8px' : '10px' }}>
+            <strong>Station : </strong> {challan.station}
+          </div>
+        )}
+      </div>
+
+      {/* 6 Dual Columns Grid Table: Srl | Meters */}
+      <div style={{
+        border: '1px solid #000',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, 1fr)',
+      }}>
+        {Array.from({ length: 6 }).map((_, cIdx) => {
+          const colItems = cols.columns[cIdx] || [];
+          return (
+            <div 
+              key={cIdx} 
+              style={{
+                borderRight: cIdx < 5 ? '1px solid #000' : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {/* Column Header */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '22px 1fr',
+                borderBottom: '1px solid #000',
+                background: '#f8fafc',
+                fontSize: isCompact ? '8px' : '10px',
+                fontWeight: 700,
+                textAlign: 'center',
+                padding: '1px 0',
+              }}>
+                <span style={{ borderRight: '1px solid #000' }}>Srl</span>
+                <span>Meters</span>
+              </div>
+
+              {/* 12 Rows per column */}
+              {Array.from({ length: 12 }).map((__, rIdx) => {
+                const item = colItems[rIdx];
+                const srlNo = cIdx * 12 + rIdx + 1;
+                return (
+                  <div
+                    key={rIdx}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '22px 1fr',
+                      borderBottom: rIdx < 11 ? '1px dotted #ccc' : 'none',
+                      fontSize: isCompact ? '8px' : '10px',
+                      height: isCompact ? '13px' : '18px',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{
+                      textAlign: 'center',
+                      borderRight: '1px solid #000',
+                      color: item ? '#000' : 'transparent',
+                      fontWeight: 600,
+                    }}>
+                      {item ? srlNo : '.'}
+                    </span>
+                    <span style={{
+                      textAlign: 'right',
+                      paddingRight: '4px',
+                      fontFamily: 'monospace',
+                      fontWeight: item ? 700 : 400,
+                    }}>
+                      {item ? item.meter.toFixed(2) : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Column Subtotals Row */}
+      <div style={{
+        border: '1px solid #000',
+        borderTop: 'none',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, 1fr)',
+        background: '#f8fafc',
+        fontWeight: 800,
+        fontSize: isCompact ? '8px' : '10px',
+      }}>
+        {Array.from({ length: 6 }).map((_, cIdx) => (
+          <div
+            key={cIdx}
+            style={{
+              borderRight: cIdx < 5 ? '1px solid #000' : 'none',
+              textAlign: 'right',
+              padding: '1px 4px',
+              fontFamily: 'monospace',
+            }}
+          >
+            {cols.subtotals[cIdx] > 0 ? cols.subtotals[cIdx].toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+          </div>
+        ))}
+      </div>
+
+      {/* Grand Totals Bar */}
+      <div style={{
+        border: '1px solid #000',
+        borderTop: 'none',
+        padding: pad,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px',
+        fontSize: isCompact ? '9px' : '11.5px',
+        fontWeight: 800,
+      }}>
+        <div>
+          <span>Total Taka : </span>
+          <span style={{ fontSize: isCompact ? '10px' : '13px', marginLeft: '4px' }}>
+            {totalTakas}
+          </span>
         </div>
         <div>
-          <div><strong>Broker:</strong> {challan.brokerName || 'Direct'}</div>
-          {challan.transportName && <div><strong>Transport:</strong> {challan.transportName}</div>}
+          <span>Total Mtrs : </span>
+          <span style={{ fontSize: isCompact ? '10.5px' : '14px', marginLeft: '4px', color: '#000080' }}>
+            {grandTotalMeters.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        </div>
+        {challan.ratePerMeter && parseFloat(challan.ratePerMeter) > 0 && (
+          <div>
+            <span>Rate : </span>
+            <span style={{ marginLeft: '2px' }}>₹{parseFloat(challan.ratePerMeter).toFixed(2)}</span>
+            <span style={{ marginLeft: '10px' }}>Est. Amt : </span>
+            <span style={{ color: '#059669' }}>{formatCurrency(grandTotalMeters * parseFloat(challan.ratePerMeter))}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer: For Mill (left), LOT NO (center bold red), Receiver Sign (right) */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+        padding: isCompact ? '4px 2px 2px' : '8px 4px 4px',
+        fontSize: isCompact ? '8.5px' : '11px',
+      }}>
+        <div>
+          <span>For, </span>
+          <strong style={{ color: '#ff0000' }}>{companyName}</strong>
+        </div>
+
+        <div style={{ textAlign: 'center' }}>
+          <strong style={{ color: '#ff0000', fontSize: isCompact ? '10px' : '13px' }}>
+            LOT NO={challan.lotNo || '—'}
+          </strong>
+        </div>
+
+        <div>
+          <strong>Receiver Sign __________</strong>
         </div>
       </div>
 
-      {/* Lot & Taka Summary Table */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-        <thead>
-          <tr style={{ background: '#f1f5f9', borderTop: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}>
-            <th style={{ padding: '4px 6px', textAlign: 'left' }}>Lot No</th>
-            <th style={{ padding: '4px 6px', textAlign: 'left' }}>Item / Quality Name</th>
-            <th style={{ padding: '4px 6px', textAlign: 'right' }}>Total Taka</th>
-            <th style={{ padding: '4px 6px', textAlign: 'right' }}>Total Meters</th>
-            <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate (₹)</th>
-            <th style={{ padding: '4px 6px', textAlign: 'right' }}>Amount (₹)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ padding: '4px 6px', fontWeight: 700 }}>{challan.lotNo || '—'}</td>
-            <td style={{ padding: '4px 6px' }}>{challan.itemName || 'Textile Fabric'}</td>
-            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 800 }}>{challan.totalTaka || 0} Pcs</td>
-            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
-              {(challan.totalMeters || 0).toFixed(2)} m
-            </td>
-            <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-              {challan.ratePerMeter ? `₹${parseFloat(challan.ratePerMeter).toFixed(2)}` : '—'}
-            </td>
-            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 800, color: '#1e40af' }}>
-              {formatCurrency(challan.totalAmount || 0)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Bottom Signatures */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '0.75rem', paddingTop: '0.25rem' }}>
-        <div style={{ textAlign: 'center', width: '140px' }}>
-          <div style={{ borderTop: '1px solid #475569', fontSize: '0.72rem', fontWeight: 600 }}>Party Signature</div>
-        </div>
-        <div style={{ textAlign: 'center', width: '160px' }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 600 }}>For {company?.businessName || 'Textile Traders'}</div>
-          <div style={{ borderTop: '1px solid #475569', fontSize: '0.72rem', fontWeight: 700, marginTop: '1rem' }}>Auth. Signatory</div>
-        </div>
+      {/* Surat Weaving Guarantee Disclaimer Note */}
+      <div style={{
+        borderTop: '1px solid #000',
+        marginTop: '2px',
+        paddingTop: '2px',
+        textAlign: 'center',
+        fontSize: isCompact ? '7px' : '9px',
+        fontWeight: 800,
+        letterSpacing: '0.02em',
+      }}>
+        <span style={{ color: '#ff0000' }}>
+          NO ANY WIVING DEFECT GURANTEE ON GREY SO CHEK AND SEND MILL......
+        </span>
+        <span style={{ color: '#0000ff' }}>
+          ONLY PRINT QUALITY
+        </span>
       </div>
     </div>
   );

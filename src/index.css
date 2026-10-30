@@ -410,20 +410,13 @@ body {
 }
 
 .sidebar {
-  width: 260px;
+  width: 215px;
   background: #0f172a;
   color: white;
-  padding: 1.75rem 1.25rem;
+  padding: 0.85rem 0.65rem;
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(255,255,255,0.06);
-  /* v1.10.46 — Reported in issue #20: "no scroll option in menu bar".
-     On 1366×768 laptops the sidebar has 14+ nav items (Dashboard, New
-     Invoice, Clients, Products, Expenses, Purchases, Recurring,
-     Receipts, Reports, GST Returns, Income Tax, User Guide, Dark Mode,
-     Control Panel, Settings) which exceeds the viewport height. Prior
-     CSS had no overflow rule so bottom items got clipped invisibly.
-     Now: sidebar scrolls internally, brand stays at top. */
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -599,15 +592,15 @@ body {
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 2.5rem;
-  padding: 0 0.5rem;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0 0.25rem;
 }
 
 .sidebar-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   background: linear-gradient(135deg, var(--primary), #7c3aed);
   display: flex;
   align-items: center;
@@ -616,19 +609,19 @@ body {
 }
 
 .sidebar-title {
-  font-size: 1.15rem;
+  font-size: 0.95rem;
   font-weight: 700;
   margin: 0;
   color: white;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .sidebar-subtitle {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #64748b;
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   font-weight: 500;
 }
 
@@ -720,13 +713,13 @@ body {
 .nav-btn {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1rem;
+  gap: 0.5rem;
+  padding: 0.38rem 0.6rem;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: #94a3b8;
-  font-size: 0.875rem;
+  font-size: 0.78rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -742,7 +735,7 @@ body {
 .nav-btn-active {
   background: var(--primary) !important;
   color: white !important;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
 }
 
 .nav-btn-bottom {
@@ -752,19 +745,19 @@ body {
 .main-content {
   flex: 1;
   overflow-y: auto;
-  padding: 2rem 2.5rem;
+  padding: 0.5rem 0.85rem;
   display: flex;
   flex-direction: column;
 }
 
 /* Sticky bars stop at the scroll area's padding, leaving a strip above them
    that content scrolls through. Pull the Settings bar up by that padding. */
-.settings-bar { top: -2rem; }
+.settings-bar { top: -0.5rem; }
 /* Settings "Save all changes" bar: docked along the bottom of the screen,
    from the sidebar to the right edge. The page gets room so its last
    section is never hidden under it. */
-.settings-savebar { position: fixed; left: 260px; right: 0; bottom: 0; }
-.settings-container { padding-bottom: 4.5rem; }
+.settings-savebar { position: fixed; left: 215px; right: 0; bottom: 0; }
+.settings-container { padding-bottom: 3.5rem; }
 
 /* ========= Glass Panels ========= */
 .glass-panel {
@@ -778,40 +771,30 @@ body {
 }
 
 /* ========= Page Headers ========= */
-/* v1.10.37 — All page headers get the treatment introduced in the
-   Settings redesign: soft primary-accent gradient card, rounded 12px
-   corners, subtle border. Reported: "I like the heading you gave into
-   Settings — I want you to do in all the pages, that looks better."
-   By upgrading the shared class instead of each file, every page
-   (Dashboard, Clients, Inventory, GST Returns, Income Tax, Reports,
-   Purchase Bills, Recurring Invoices, Expenses, Receipts, User Guide,
-   Settings) inherits the same visual identity automatically. Right-
-   side action slot is preserved via the existing justify-content:
-   space-between + align-items: center. */
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 0.6rem;
   flex-wrap: wrap;
-  padding: 1.1rem 1.35rem;
+  padding: 0.45rem 0.75rem;
   background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.12), var(--card-bg));
   border: 1px solid var(--border);
-  border-radius: 12px;
-  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 0.55rem;
 }
 
 .page-title {
-  font-size: 1.55rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  letter-spacing: -0.025em;
-  margin-bottom: 0.2rem;
-  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin-bottom: 0.1rem;
+  line-height: 1.2;
 }
 
 .page-subtitle {
   color: var(--text-secondary);
-  font-size: 0.86rem;
+  font-size: 0.75rem;
   margin: 0;
 }
 /* Fallback for dark mode — some browsers render color-mix() with
@@ -825,61 +808,58 @@ body {
 [data-theme="dark"] .page-header.page-header-compact { padding: 0; background: none; border: 0; border-radius: 0; }
 
 .section-title {
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: var(--primary);
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.6rem;
   letter-spacing: -0.01em;
 }
 
 .update-available-box {
-  margin-top: 1rem;
-  padding: 0.85rem 1rem;
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.75rem;
   background: rgba(34,197,94,0.08);
   border: 1px solid rgba(34,197,94,0.2);
-  border-radius: 8px;
-  font-size: 0.88rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
   color: var(--text);
 }
-.update-available-box p { margin: 0.25rem 0; }
+.update-available-box p { margin: 0.15rem 0; }
 .spin { animation: spin 1s linear infinite; }
 
 /* ========= Forms ========= */
-.form-group { margin-bottom: 1rem; }
+.form-group { margin-bottom: 0.45rem; }
 .form-group.full-width { grid-column: span 2; }
 
 .form-label {
   display: block;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.15rem;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
 }
 
 .form-input {
   width: 100%;
-  padding: 0.65rem 0.9rem;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
+  padding: 0.3rem 0.55rem;
+  border: 1.2px solid var(--border);
+  border-radius: 6px;
   background: white;
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   transition: all 0.2s;
   color: var(--text);
+  min-height: 28px;
 }
 
 .form-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-light);
+  box-shadow: 0 0 0 2px var(--primary-light);
 }
 
-/* v1.10.34 — Private-note textarea gets a warm-ivory tint in light
-   mode (visually separates it from regular fields), a muted warm tint
-   in dark mode. Prior inline `background:'#fffef5'` looked yellow-on-
-   dark and unreadable in dark mode. */
 .note-textarea {
   background: #fffef5;
 }
@@ -892,25 +872,25 @@ select.form-input {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236b7280' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 0.75rem center;
-  padding-right: 2rem;
+  background-position: right 0.5rem center;
+  padding-right: 1.5rem;
 }
 
-textarea.form-input { resize: vertical; min-height: 60px; }
+textarea.form-input { resize: vertical; min-height: 48px; }
 
 /* ========= Buttons ========= */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.6rem 1.25rem;
-  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
   font-weight: 500;
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.15s ease;
   border: none;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-family: inherit;
 }
 
@@ -922,19 +902,19 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 .btn-primary {
   background: var(--primary);
   color: white;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.2);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--primary-hover);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
   transform: translateY(-1px);
 }
 
 .btn-secondary {
   background: white;
   color: var(--text);
-  border: 1.5px solid var(--border);
+  border: 1.2px solid var(--border);
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -942,13 +922,10 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   border-color: #d1d5db;
 }
 
-/* v1.10.33 — Icon buttons: slightly larger tap target (28→30px),
-   subtle background transition, and a lift on hover so the row's
-   actions feel interactive rather than static. */
 .icon-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   border: none;
   cursor: pointer;
   display: inline-flex;
@@ -976,41 +953,31 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 .icon-btn-red:hover { background: rgba(220, 38, 38, 0.18); box-shadow: 0 2px 6px rgba(220,38,38,0.15); }
 
 /* ========= Dashboard ========= */
-/* v1.10.33 — Bumped from 1000px. The invoice table has 8 columns
-   including a 7-8 icon Actions column (~250px) — 1000px squeezed
-   the last icon(s) off-screen on wide monitors. 1400px gives room
-   for every column at natural width while still preventing infinite
-   stretch on ultra-wide displays. */
 .dashboard-container { max-width: 1400px; margin: 0 auto; width: 100%; }
-/* v1.10.37 — Widened 800 → 1100px. Reported: "settings page could
-   be widened so nav pills fit on one line". 11-chip jump-nav needs
-   ~950px to render without horizontal scroll, so 1100 gives comfortable
-   margin. Existing form grids inside were already `grid-cols-2` and
-   scale naturally. */
 .settings-container { max-width: 1100px; margin: 0 auto; width: 100%; }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.25rem;
-  margin-bottom: 2rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
 }
 
 .stat-card {
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--glass-shadow);
-  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  padding: 0.5rem 0.75rem;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.6rem;
 }
 
 .stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1022,19 +989,19 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 .stat-icon-purple { background: var(--purple-light); color: var(--purple); }
 
 .stat-label {
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin-bottom: 0.25rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.1rem;
 }
 
 .stat-value {
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: var(--primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
@@ -1043,14 +1010,12 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 
 /* ========= Table ========= */
 .table-header {
-  padding: 1.25rem 1.5rem;
+  padding: 0.45rem 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
-.table-header h3 { margin: 0; font-size: 1rem; }
+.table-header h3 { margin: 0; font-size: 0.88rem; font-weight: 600; }
 
-/* v1.10.33 — Scroll container gets a fade at the right edge so
-   users know there's more table off-screen on narrow viewports. */
 .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -1060,21 +1025,16 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  /* v1.10.33 — Bumped from 900px to 1100px. The 8-column + 8-icon
-     action row needs 1050-1100px to render without ellipsis pressure
-     on Amount / Client. */
-  min-width: 1100px;
-  /* Financial columns look right when digits align; tabular-nums
-     guarantees monospace-style digit widths without a mono font. */
+  min-width: 900px;
   font-variant-numeric: tabular-nums;
 }
 
 .data-table th {
   text-align: left;
-  padding: 0.7rem 0.6rem;   /* v1.10.33 — was 0.5rem/0.5rem, felt cramped */
-  font-size: 0.68rem;        /* +0.03rem — 0.65rem was borderline unreadable */
+  padding: 0.35rem 0.45rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;    /* wider tracking → premium feel */
+  letter-spacing: 0.04em;
   color: var(--text-secondary);
   font-weight: 600;
   border-bottom: 1px solid var(--border);
@@ -1083,16 +1043,16 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 }
 
 .data-table td {
-  padding: 0.75rem 0.6rem;   /* v1.10.33 — was 0.5rem, needed breathing room */
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);  /* softer than --border */
+  padding: 0.32rem 0.45rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
   vertical-align: middle;
-  font-size: 0.82rem;        /* +0.04rem — 0.78rem read as micro */
+  font-size: 0.78rem;
   white-space: nowrap;
 }
 
 .data-table td.td-client {
   white-space: normal;
-  max-width: 200px;          /* v1.10.33 — was 160px, ellipsis triggered too early */
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1558,18 +1518,36 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   body:has(#invoice-preview) .preview-scaler {
     transform: none !important;
   }
-  /* v1.10.48 — The scaler now sits inside a frame carrying an inline
-     width/height of natural × zoom. #invoice-preview is absolutely
-     positioned here so the frame cannot clip it, but the frame would
-     still reserve a stale scaled box on the printed page. Release it
-     alongside the transform above. */
   body:has(#invoice-preview) .preview-scaler-frame {
     width: auto !important;
     height: auto !important;
   }
+
+  /* Delivery Challan Print rules (Single or 2-in-1 Surat textile standard) */
+  body:has(#printable-challan) * { visibility: hidden !important; }
+  body:has(#printable-challan) #printable-challan,
+  body:has(#printable-challan) #printable-challan * { visibility: visible !important; }
+  body:has(#printable-challan) #printable-challan {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  body:has(#printable-challan) .no-print {
+    display: none !important;
+  }
+
   @page {
-    margin: 0;
-    size: auto;
+    margin: 5mm;
+    size: A4 portrait;
   }
 }
 

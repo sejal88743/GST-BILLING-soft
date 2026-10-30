@@ -13,6 +13,7 @@
  * column instead of disappearing.
  */
 import { countsAsSales, amountDue } from '../utils.js';
+import { getRecordCompanyName } from './companyContext.js';
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -30,8 +31,8 @@ export function periodMonths(mode, startYear) {
 export const billCurrency = (b) => b.currency || b.data?.invoiceOptions?.currency || 'INR';
 
 // One row per party (same name, ignoring case and spaces), sorted by name:
-// { name, earlier, months: { 'YYYY-MM': amount }, total }.
-export function partyOutstanding(bills, months, currency = 'INR') {
+// { name, earlier, months: { 'YYYY-MM': amount }, total, companies: { [comp]: amount }, bills: [...] }.
+export function partyOutstanding(bills, months, currency = 'INR', defaultCompany = 'Main Firm') {
   const first = months[0].key;
   const last = months[months.length - 1].key;
   const rows = new Map();
@@ -43,11 +44,26 @@ export function partyOutstanding(bills, months, currency = 'INR') {
     if (due <= 0 || !ym || ym > last) continue;
     const name = String(b.clientName || '').trim() || 'Unknown';
     const id = name.toLowerCase();
-    const row = rows.get(id) || { name, earlier: 0, months: {}, total: 0 };
+    const company = getRecordCompanyName(b, defaultCompany);
+    const row = rows.get(id) || { name, earlier: 0, months: {}, total: 0, companies: {}, bills: [] };
     if (ym < first) row.earlier += due;
     else row.months[ym] = (row.months[ym] || 0) + due;
-    row.total += due;
+    row.total = Math.round((row.total + due) * 100) / 100;
+    row.companies[company] = Math.round(((row.companies[company] || 0) + due) * 100) / 100;
+    row.bills.push({
+      id: b.id || b.invoiceNumber,
+      invoiceNumber: b.invoiceNumber,
+      invoiceDate: b.invoiceDate,
+      dueDate: b.data?.details?.dueDate || b.invoiceDate,
+      companyName: company,
+      brokerName: b.data?.details?.brokerName || '—',
+      totalAmount: Number(b.totalAmount) || 0,
+      paidAmount: Number(b.paidAmount) || 0,
+      due,
+      itemsCount: (b.data?.items || []).length,
+    });
     rows.set(id, row);
   }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
+
