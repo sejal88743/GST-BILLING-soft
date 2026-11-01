@@ -1,17 +1,52 @@
-import { useState } from 'react';
-import { X, Users, Scissors, Package, Check } from 'lucide-react';
-import { saveClient, saveBroker, saveProduct } from '../store';
+import { useState, useEffect } from 'react';
+import { X, Users, Scissors, Package, Check, Sparkles } from 'lucide-react';
+import { saveClient, saveBroker, saveProduct, getAllBrokers, lookupGstin } from '../store';
 import { toast } from './Toast';
 
 export default function QuickAddModal({ isOpen, onClose, onAdded }) {
   const [tab, setTab] = useState('party'); // 'party' | 'broker' | 'product'
+  const [brokers, setBrokers] = useState([]);
+  const [syncingGstin, setSyncingGstin] = useState(false);
 
   // Party Form
-  const [partyForm, setPartyForm] = useState({ name: '', gstin: '', phone: '', address: '', state: '' });
+  const [partyForm, setPartyForm] = useState({ name: '', gstin: '', phone: '', address: '', state: '', brokerName: '' });
   // Broker Form
   const [brokerForm, setBrokerForm] = useState({ name: '', phone: '' });
   // Product Form
   const [productForm, setProductForm] = useState({ name: '', hsn: '', unit: 'Pcs', salesPrice: '', taxPercent: '5', stock: '' });
+
+  useEffect(() => {
+    if (isOpen) {
+      getAllBrokers().then(b => setBrokers(b || [])).catch(() => {});
+    }
+  }, [isOpen]);
+
+  const handleGstinLookup = async (gstinVal) => {
+    const clean = (gstinVal || partyForm.gstin || '').trim().toUpperCase();
+    if (!clean || clean.length < 15) {
+      toast('Enter a valid 15-digit GSTIN to auto-sync', 'info');
+      return;
+    }
+    setSyncingGstin(true);
+    toast('Syncing GSTIN data...', 'info');
+    try {
+      const data = await lookupGstin(clean);
+      if (data) {
+        setPartyForm(prev => ({
+          ...prev,
+          gstin: clean,
+          name: prev.name || data.tradeName || data.legalName || '',
+          address: prev.address || data.address || '',
+          state: data.state || prev.state || '',
+        }));
+        toast(`Auto-filled: ${data.tradeName || clean} (${data.state})`, 'success');
+      }
+    } catch {
+      toast('Could not fetch GSTIN info', 'warn');
+    } finally {
+      setSyncingGstin(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -100,14 +135,54 @@ export default function QuickAddModal({ isOpen, onClose, onAdded }) {
         </div>
 
         {tab === 'party' && (
-          <form onSubmit={handleSaveParty} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+          <form onSubmit={handleSaveParty} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+            <div style={{ gridColumn: '1 / -1', background: '#eff6ff', border: '1px solid #bfdbfe', padding: '0.6rem 0.75rem', borderRadius: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ margin: 0, fontSize: '0.76rem', color: '#1e40af', fontWeight: 700 }}>
+                  ⚡ GSTIN Direct Auto-Fill (ClearTax API Sync)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleGstinLookup()}
+                  disabled={syncingGstin}
+                  className="btn btn-primary"
+                  style={{ padding: '0.2rem 0.6rem', fontSize: '0.72rem' }}
+                >
+                  <Sparkles size={12} /> {syncingGstin ? 'Syncing...' : 'Sync GST'}
+                </button>
+              </div>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Enter 15-digit GSTIN (e.g. 24AUCPS7939J1Z3)"
+                value={partyForm.gstin}
+                maxLength={15}
+                onChange={e => setPartyForm({ ...partyForm, gstin: e.target.value.toUpperCase() })}
+                onBlur={() => {
+                  if (partyForm.gstin && partyForm.gstin.length === 15 && !partyForm.name) {
+                    handleGstinLookup(partyForm.gstin);
+                  }
+                }}
+                style={{ textTransform: 'uppercase', fontWeight: 600, fontSize: '0.85rem' }}
+              />
+            </div>
+
             <div style={{ gridColumn: '1 / -1' }}>
               <label className="form-label">Party Name *</label>
               <input type="text" className="form-input" placeholder="e.g. Sharma Textiles" value={partyForm.name} onChange={e => setPartyForm({ ...partyForm, name: e.target.value })} required autoFocus />
             </div>
             <div>
-              <label className="form-label">GSTIN</label>
-              <input type="text" className="form-input" placeholder="24AAAAA0000A1Z5" value={partyForm.gstin} onChange={e => setPartyForm({ ...partyForm, gstin: e.target.value })} />
+              <label className="form-label">Agent / Broker (दलाल)</label>
+              <select
+                className="form-input"
+                value={partyForm.brokerName}
+                onChange={e => setPartyForm({ ...partyForm, brokerName: e.target.value })}
+              >
+                <option value="">Direct / None (कोई दलाल नहीं)</option>
+                {brokers.map(b => (
+                  <option key={b.id || b.name} value={b.name}>{b.name}{b.phone ? ` (${b.phone})` : ''}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="form-label">Phone Number</label>
@@ -121,7 +196,7 @@ export default function QuickAddModal({ isOpen, onClose, onAdded }) {
               <label className="form-label">State</label>
               <input type="text" className="form-input" placeholder="e.g. Gujarat" value={partyForm.state} onChange={e => setPartyForm({ ...partyForm, state: e.target.value })} />
             </div>
-            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
               <button type="submit" className="btn btn-primary"><Check size={16} /> Save Party</button>
             </div>

@@ -44,6 +44,7 @@ import LockButton from './components/LockButton';
 import QuickAddModal from './components/QuickAddModal';
 import { lockNow } from './utils/appLock';
 import { getPrintSettings } from './utils/printSettings';
+import { attachGlobalEnterKeyNav } from './utils/enterKeyNav';
 
 const openDocs = () => window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
 
@@ -150,6 +151,12 @@ function App() {
     // Then re-check every 6 hours while the app is open.
     const interval = setInterval(check, 6 * 60 * 60 * 1000);
     return () => { cancelled = true; clearTimeout(initial); clearInterval(interval); };
+  }, []);
+
+  // Global enter-key navigation across all views, options, and modals
+  useEffect(() => {
+    const detach = attachGlobalEnterKeyNav();
+    return () => detach();
   }, []);
 
   // ---- Notification centre ----
@@ -905,7 +912,7 @@ function App() {
       <div className="mobile-topbar">
         <button type="button" className="mobile-topbar-btn" onClick={() => setNavOpen(true)}
           aria-label="Open menu" aria-expanded={navOpen}>
-          <Menu size={22} />
+          <Menu size={18} />
         </button>
         <span className="mobile-topbar-title">GST Billing</span>
         <span className="mobile-topbar-business">{profile?.businessName || ''}</span>
@@ -1088,27 +1095,13 @@ function App() {
       )}
       <div className="main-content">
         {/* Multi-Company & Financial Year Top Switcher Banner */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '0.75rem',
-          padding: '0.65rem 1rem',
-          background: 'var(--bg-card, #ffffff)',
-          borderBottom: '1px solid var(--border-color, #e2e8f0)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 30,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Building2 size={16} style={{ color: 'var(--primary, #1e40af)' }} />
-              <label style={{ fontSize: '0.82rem', fontWeight: 700, margin: 0, color: 'var(--text-muted)' }}>Company:</label>
+        <div className="company-fy-topbar">
+          <div className="company-fy-controls">
+            <div className="company-fy-group">
+              <Building2 size={15} className="company-fy-icon" style={{ color: 'var(--primary, #1e40af)' }} />
+              <label className="company-fy-label">Company:</label>
               <select
-                className="form-input"
-                style={{ padding: '0.3rem 0.6rem', fontSize: '0.84rem', fontWeight: 600, height: 'auto', minWidth: '160px' }}
+                className="form-input company-fy-select"
                 value={profile?.businessName || ''}
                 onChange={(e) => {
                   if (e.target.value === '__ADD_NEW__') {
@@ -1126,52 +1119,41 @@ function App() {
               </select>
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn-secondary company-fy-add-btn"
                 onClick={() => setShowNewCompanyModal(true)}
                 title="Add New Company (e.g. MANOJ, VINAYAK)"
-                style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
               >
-                <Plus size={13} /> Add
+                <Plus size={12} /> Add
               </button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Calendar size={16} style={{ color: 'var(--primary, #1e40af)' }} />
-              <label style={{ fontSize: '0.82rem', fontWeight: 700, margin: 0, color: 'var(--text-muted)' }}>Financial Year:</label>
+            <div className="company-fy-group">
+              <Calendar size={15} className="company-fy-icon" style={{ color: 'var(--primary, #1e40af)' }} />
+              <label className="company-fy-label">FY:</label>
               <select
-                className="form-input"
-                style={{ padding: '0.3rem 0.6rem', fontSize: '0.84rem', fontWeight: 600, height: 'auto', minWidth: '130px' }}
+                className="form-input company-fy-select"
                 value={activeFY}
                 onChange={(e) => handleFYChange(e.target.value)}
               >
                 {fyList.map(fy => (
                   <option key={fy} value={fy}>FY {fy}</option>
                 ))}
-                <option value="all">All Financial Years</option>
+                <option value="all">All Years</option>
               </select>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div className="company-fy-actions">
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary company-fy-quickadd"
               onClick={() => setShowQuickAddModal(true)}
-              style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
               title="Quick Add Party, Broker, or Item in one place"
             >
-              <Plus size={15} /> Quick Add (पार्टी/दलाल/आइटम)
+              <Plus size={14} /> Quick Add (पार्टी/दलाल/आइटम)
             </button>
-            <span style={{
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              padding: '0.25rem 0.75rem',
-              borderRadius: '999px',
-              background: 'rgba(30, 64, 175, 0.08)',
-              color: 'var(--primary, #1e40af)',
-              border: '1px solid rgba(30, 64, 175, 0.2)',
-            }}>
-              🏢 {profile?.businessName || 'Business'} &bull; {activeFY === 'all' ? 'All Years' : `FY ${activeFY}`}
+            <span className="company-fy-badge">
+              🏢 {profile?.businessName || 'Business'} &bull; {activeFY === 'all' ? 'All' : activeFY}
             </span>
           </div>
         </div>

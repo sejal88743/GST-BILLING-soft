@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff, Layers, X, UserCheck } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { saveBill, deleteBill, applyStockChanges, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllRecurring, getAllBills, getAllBrokers, saveBroker, getAllChallans, saveChallan } from '../store';
+import { saveBill, deleteBill, applyStockChanges, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllRecurring, getAllBills, getAllBrokers, saveBroker, getAllChallans, saveChallan, lookupGstin } from '../store';
 import { INVOICE_TYPES, businessKeyOf, GST_DOC_NUMBER, COUNTRIES, printedSubtotal, deliveryChargeLine, stockEffect, appliedStock, stockDelta, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, REMOVED_TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, clientYearToDate, htmlHasText, ORDER_DETAIL_FIELDS, invoiceOptionOn, DEFAULT_DECLARATION, decodeGstin, safePageBoundaries, localToday, toLocalIsoDate, parseLocalDate, paymentStatusFor } from '../utils';
 import { handleEnterKeyNavigation } from '../utils/enterKeyNav';
 import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
@@ -1593,43 +1593,64 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     });
     setSelectedClientId(cli.id);
     setShowClientSuggestions(false);
+
+    // Auto-select broker if assigned to client
+    const clientBroker = cli.brokerName || cli.broker || '';
+    if (clientBroker) {
+      setDetails(prev => ({ ...prev, brokerName: clientBroker }));
+      toast(`Loaded client: ${cli.name} (Broker: ${clientBroker})`, 'info');
+    } else {
+      toast(`Loaded client: ${cli.name}`, 'info');
+    }
+
     // v1.9.1 — auto-apply per-client print preferences (if set on the client
     // record). Overrides invoice-level defaults for this session. Only fires
     // for NEW bills (not when editing) since editing bills keep saved options.
-    //
-    // v1.10.12 — reported: "one client is set with thermal invoice print,
-    // others are also changing the preview". Root cause: prior code only
-    // set a patch WHEN the client had a preference — so switching from
-    // Client A (thermal) → Client B (no preference) left the thermal
-    // setting sticky. Now we ALWAYS assign paperSize / currency /
-    // clientAutoPrint to the new client's value OR the app default, so
-    // client B resets to A4/INR cleanly.
     if (!editingBill) {
       setInvoiceOptions(prev => ({
         ...prev,
-        // v1.10.33 — Was `cli.preferredPaperSize || 'a4'` which HARD-RESET
-        // to A4 for every client without an explicit preference — wiping
-        // out the user's globally saved default (e.g. someone who prints
-        // every invoice on 80mm thermal would land back on A4 the moment
-        // they picked a client). Now falls back to prev.paperSize so
-        // globally-persisted choice sticks until the user changes it.
         paperSize: cli.preferredPaperSize || prev.paperSize || 'a4',
-        // v1.10.48 — Custom paper carries its dimensions in SEPARATE
-        // fields, and prior code restored only `preferredPaperSize`. So a
-        // client saved on 'custom' came back as 'custom' with no width —
-        // and getPaperSize() defaults a missing custom width to 80mm,
-        // whose `kind` is 'thermal'. Net effect: selecting that client
-        // silently turned the invoice into an 80mm receipt. Restore the
-        // dimensions with the size, falling back to the current values
-        // rather than to getPaperSize's thermal default.
         customPaperWidth: cli.preferredCustomPaperWidth || prev.customPaperWidth || 80,
         customPaperHeight: cli.preferredCustomPaperHeight || prev.customPaperHeight || 297,
         currency: cli.preferredCurrency || prev.currency || 'INR',
-        // v1.10.5 — client-level auto-print override (see original comment).
         clientAutoPrint: !!cli.autoPrint,
       }));
     }
-    toast(`Loaded client: ${cli.name}`, 'info');
+  };
+
+  // Direct GSTIN Sync for Invoice Generator
+  const handleDirectGstinSync = async (rawGstin) => {
+    const clean = (rawGstin || client.gstin || '').trim().toUpperCase();
+    if (!clean || clean.length < 15) {
+      toast('Enter a valid 15-character GSTIN to auto-sync', 'info');
+      return;
+    }
+    toast('Syncing GSTIN data with taxpayer registry...', 'info');
+    try {
+      const data = await lookupGstin(clean);
+      if (data) {
+        // Check if there is an existing client in database with this GSTIN to pick broker
+        const matchedClient = savedClients.find(c => (c.gstin || '').trim().toUpperCase() === clean);
+        const broker = matchedClient?.brokerName || matchedClient?.broker || '';
+        if (broker) {
+          setDetails(prev => ({ ...prev, brokerName: broker }));
+        }
+        setClient(prev => ({
+          ...prev,
+          gstin: clean,
+          name: matchedClient?.name || data.tradeName || data.legalName || prev.name,
+          address: matchedClient?.address || data.address || prev.address,
+          city: matchedClient?.city || data.city || prev.city,
+          pin: matchedClient?.pin || data.pin || prev.pin,
+          state: data.state || matchedClient?.state || prev.state,
+          country: matchedClient?.country || prev.country || 'India',
+        }));
+        setGstinHint({ tone: 'ok', message: `Synced: ${data.tradeName || clean} (${data.state})` });
+        toast(`Synced ${data.tradeName || clean}${broker ? ` | Broker: ${broker}` : ''}`, 'success');
+      }
+    } catch {
+      toast('Could not fetch GSTIN info', 'warn');
+    }
   };
 
   // Open modal to add new client (pre-fill from current invoice fields)
@@ -4301,176 +4322,201 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group full-width" style={{ position: 'relative' }}>
-                <label className="form-label">Client Name</label>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <input type="text" className="form-input" style={{ flex: 1 }} value={client.name} ref={clientNameRef}
-                    onChange={(e) => {
-                      setClient({ ...client, name: e.target.value });
-                      setSelectedClientId(null);
-                      setShowClientSuggestions(true);
-                      setClientPickerIdx(-1);
-                    }}
-                    onFocus={() => { if (savedClients.length > 0) setShowClientSuggestions(true); }}
-                    onKeyDown={(e) => {
-                      // v1.10.37 — Arrow keys / Enter / Escape on the client
-                      // picker. Reported: "20 invoices/day forces mouse on
-                      // the client autocomplete." Now: keyboard-only path.
-                      if (!showClientSuggestions || !filteredClients.length) return;
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setClientPickerIdx(i => (i + 1) % filteredClients.length);
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setClientPickerIdx(i => (i <= 0 ? filteredClients.length - 1 : i - 1));
-                      } else if (e.key === 'Enter') {
-                        // Only intercept Enter when the user has actually
-                        // arrow-nav'd to a suggestion; otherwise let Enter
-                        // fall through to the form for the "Add new client"
-                        // path via openAddClientModal.
-                        if (clientPickerIdx >= 0 && filteredClients[clientPickerIdx]) {
+            {/* Compact Space-Filling Billed To Grid */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              {/* Row 1: Client Name + Direct GSTIN Field */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.65rem' }}>
+                <div className="form-group" style={{ margin: 0, position: 'relative' }}>
+                  <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Client / Buyer Name *</label>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <input type="text" className="form-input" style={{ flex: 1, fontWeight: 600 }} value={client.name} ref={clientNameRef}
+                      onChange={(e) => {
+                        setClient({ ...client, name: e.target.value });
+                        setSelectedClientId(null);
+                        setShowClientSuggestions(true);
+                        setClientPickerIdx(-1);
+                      }}
+                      onFocus={() => { if (savedClients.length > 0) setShowClientSuggestions(true); }}
+                      onKeyDown={(e) => {
+                        if (!showClientSuggestions || !filteredClients.length) return;
+                        if (e.key === 'ArrowDown') {
                           e.preventDefault();
-                          selectSavedClient(filteredClients[clientPickerIdx]);
+                          setClientPickerIdx(i => (i + 1) % filteredClients.length);
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setClientPickerIdx(i => (i <= 0 ? filteredClients.length - 1 : i - 1));
+                        } else if (e.key === 'Enter') {
+                          if (clientPickerIdx >= 0 && filteredClients[clientPickerIdx]) {
+                            e.preventDefault();
+                            selectSavedClient(filteredClients[clientPickerIdx]);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setShowClientSuggestions(false);
                         }
-                      } else if (e.key === 'Escape') {
-                        setShowClientSuggestions(false);
-                      }
-                    }}
-                    placeholder="Type client name to search or add new" autoComplete="off" />
-                  {selectedClientId && (
-                    <button type="button" className="btn-client-edit" onClick={() => openEditClientModal(savedClients.find(c => c.id === selectedClientId))} title="Edit saved client">
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                </div>
-                {showClientSuggestions && savedClients.length > 0 && (
-                  <div className="client-suggestions" ref={clientSuggestionsRef}>
-                    {filteredClients.length > 0 && filteredClients.map((cli, i) => (
-                      <div key={cli.id} className="client-suggestion-row"
-                        style={i === clientPickerIdx ? { background: 'var(--primary-light, rgba(30,64,175,0.12))' } : undefined}>
-                        <button type="button" className="client-suggestion-item"
-                          onMouseEnter={() => setClientPickerIdx(i)}
-                          onClick={() => selectSavedClient(cli)}>
-                          <div className="client-suggestion-main">
-                            <strong>{cli.name}</strong>
-                            {(cli.city || cli.address) && <small className="client-suggestion-addr">{cli.city || cli.address.substring(0, 30)}{!cli.city && cli.address.length > 30 ? '...' : ''}</small>}
-                          </div>
-                          <span>{cli.state}{cli.gstin ? ` · ${cli.gstin}` : ''}</span>
-                        </button>
-                        <button type="button" className="client-suggestion-edit" onClick={() => { openEditClientModal(cli); setShowClientSuggestions(false); }} title="Edit client">
-                          <Pencil size={12} />
-                        </button>
-                      </div>
-                    ))}
-                    {client.name.trim() && (
-                      <button type="button" className="client-suggestion-save" onClick={openAddClientModal}>
-                        <UserPlus size={14} /> Save "{client.name.trim()}" as new client
+                      }}
+                      placeholder="Type client name to search or add new" autoComplete="off" />
+                    {selectedClientId && (
+                      <button type="button" className="btn-client-edit" onClick={() => openEditClientModal(savedClients.find(c => c.id === selectedClientId))} title="Edit saved client">
+                        <Pencil size={14} />
                       </button>
                     )}
-                    {filteredClients.length === 0 && !client.name.trim() && (
-                      <div className="client-picker-empty">Type to search clients</div>
-                    )}
                   </div>
-                )}
+                  {showClientSuggestions && savedClients.length > 0 && (
+                    <div className="client-suggestions" ref={clientSuggestionsRef}>
+                      {filteredClients.length > 0 && filteredClients.map((cli, i) => (
+                        <div key={cli.id} className="client-suggestion-row"
+                          style={i === clientPickerIdx ? { background: 'var(--primary-light, rgba(30,64,175,0.12))' } : undefined}>
+                          <button type="button" className="client-suggestion-item"
+                            onMouseEnter={() => setClientPickerIdx(i)}
+                            onClick={() => selectSavedClient(cli)}>
+                            <div className="client-suggestion-main">
+                              <strong>{cli.name}</strong>
+                              {(cli.city || cli.address) && <small className="client-suggestion-addr">{cli.city || cli.address.substring(0, 30)}{!cli.city && cli.address.length > 30 ? '...' : ''}</small>}
+                            </div>
+                            <span>{cli.state}{cli.gstin ? ` · ${cli.gstin}` : ''}</span>
+                          </button>
+                          <button type="button" className="client-suggestion-edit" onClick={() => { openEditClientModal(cli); setShowClientSuggestions(false); }} title="Edit client">
+                            <Pencil size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      {client.name.trim() && (
+                        <button type="button" className="client-suggestion-save" onClick={openAddClientModal}>
+                          <UserPlus size={14} /> Save "{client.name.trim()}" as new client
+                        </button>
+                      )}
+                      {filteredClients.length === 0 && !client.name.trim() && (
+                        <div className="client-picker-empty">Type to search clients</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Direct GSTIN Sync Field */}
+                {invoiceOptions.showGSTIN && (() => {
+                  const cc = getCountryConfig(client.country || profile?.country);
+                  return (
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                        <label className="form-label" style={{ margin: 0, fontSize: '0.76rem' }}>{cc.taxIdLabel}</label>
+                        <button
+                          type="button"
+                          onClick={() => handleDirectGstinSync()}
+                          style={{ background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 }}
+                          title="Direct GSTIN lookup & auto-fill client details"
+                        >
+                          ⚡ Sync GST (ClearTax style)
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <input type="text" className="form-input" value={client.gstin}
+                          style={{ flex: 1, textTransform: 'uppercase', fontWeight: 600 }}
+                          onChange={(e) => { setClient({ ...client, gstin: e.target.value.toUpperCase() }); setGstinHint(null); }}
+                          onBlur={() => {
+                            handleClientGstinBlur();
+                            if (client.gstin && client.gstin.length === 15 && !client.name) {
+                              handleDirectGstinSync(client.gstin);
+                            }
+                          }}
+                          placeholder="e.g. 24AUCPS7939J1Z3 (Auto-fills all fields)" maxLength={20} />
+                      </div>
+                      {gstinHint && (
+                        <small style={{ color: gstinHint.tone === 'warn' ? '#d97706' : '#16a34a', fontSize: '0.7rem', display: 'block', marginTop: '0.2rem' }}>
+                          {gstinHint.tone === 'warn' ? '⚠' : '✓'} {gstinHint.message}
+                        </small>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
-              <div className="form-group full-width">
-                <label className="form-label">Billing Address</label>
+
+              {/* Row 2: Billing Address */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Billing Address</label>
                 <input type="text" className="form-input" value={client.address}
-                  onChange={(e) => setClient({ ...client, address: e.target.value })} placeholder="Street address, locality" />
+                  onChange={(e) => setClient({ ...client, address: e.target.value })} placeholder="Street address, building, market name, locality" />
               </div>
-              <div className="form-group">
-                <label className="form-label">Country</label>
-                <select className="form-input" value={client.country || profile?.country || 'India'}
-                  onChange={(e) => setClient({ ...client, country: e.target.value, state: '' })}>
-                  {(() => {
-                    const visible = getCountriesForRegion(getRegionMode());
-                    const cur = client.country || profile?.country;
-                    const out = [];
-                    if (cur && !visible.some(c => c.name === cur)) {
-                      out.push(<option key={cur} value={cur}>{cur}</option>);
-                    }
-                    return out.concat(visible.map(c => <option key={c.code} value={c.name}>{c.name}</option>));
-                  })()}
-                </select>
+
+              {/* Row 3: City, PIN, State, Country in 1 compact space-filling row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>City</label>
+                  <input type="text" className="form-input" value={client.city}
+                    onChange={(e) => setClient({ ...client, city: e.target.value })} placeholder="e.g. Surat" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  {(() => { const cc = getCountryConfig(client.country || profile?.country); return <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>{cc.postalLabel}</label>; })()}
+                  <input type="text" className="form-input" value={client.pin}
+                    onChange={(e) => setClient({ ...client, pin: e.target.value })} placeholder="PIN / Postal code" />
+                </div>
+                {invoiceOptions.showState && (() => {
+                  const cc = getCountryConfig(client.country || profile?.country);
+                  const stateOpts = getStatesForCountry(client.country || profile?.country);
+                  return (
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>{cc.stateLabel}</label>
+                      {stateOpts.length > 0 ? (
+                        <select className="form-input" value={client.state} onChange={(e) => setClient({ ...client, state: e.target.value })}>
+                          <option value="">Select {cc.stateLabel}</option>
+                          {stateOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      ) : (
+                        <input type="text" className="form-input" value={client.state}
+                          onChange={(e) => setClient({ ...client, state: e.target.value })} placeholder={cc.stateLabel} />
+                      )}
+                    </div>
+                  );
+                })()}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Country</label>
+                  <select className="form-input" value={client.country || profile?.country || 'India'}
+                    onChange={(e) => setClient({ ...client, country: e.target.value, state: '' })}>
+                    {(() => {
+                      const visible = getCountriesForRegion(getRegionMode());
+                      const cur = client.country || profile?.country;
+                      const out = [];
+                      if (cur && !visible.some(c => c.name === cur)) {
+                        out.push(<option key={cur} value={cur}>{cur}</option>);
+                      }
+                      return out.concat(visible.map(c => <option key={c.code} value={c.name}>{c.name}</option>));
+                    })()}
+                  </select>
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">City</label>
-                <input type="text" className="form-input" value={client.city}
-                  onChange={(e) => setClient({ ...client, city: e.target.value })} placeholder="e.g. Mumbai" />
-              </div>
-              <div className="form-group">
-                {(() => { const cc = getCountryConfig(client.country || profile?.country); return <label className="form-label">{cc.postalLabel}</label>; })()}
-                <input type="text" className="form-input" value={client.pin}
-                  onChange={(e) => setClient({ ...client, pin: e.target.value })} placeholder="Postal / PIN code" />
-              </div>
-              {invoiceOptions.showState && (() => {
-                const cc = getCountryConfig(client.country || profile?.country);
-                const stateOpts = getStatesForCountry(client.country || profile?.country);
-                return (
-                  <div className="form-group">
-                    <label className="form-label">{cc.stateLabel}</label>
-                    {stateOpts.length > 0 ? (
-                      <select className="form-input" value={client.state} onChange={(e) => setClient({ ...client, state: e.target.value })}>
-                        <option value="">Select {cc.stateLabel}</option>
-                        {stateOpts.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <input type="text" className="form-input" value={client.state}
-                        onChange={(e) => setClient({ ...client, state: e.target.value })} placeholder={cc.stateLabel} />
-                    )}
-                  </div>
-                );
-              })()}
-              {invoiceOptions.showGSTIN && (() => {
-                const cc = getCountryConfig(client.country || profile?.country);
-                return (
-                  <div className="form-group">
-                    <label className="form-label">{cc.taxIdLabel}</label>
-                    <input type="text" className="form-input" value={client.gstin}
-                      // v1.10.74 - drop the old hint on edit; it is re-checked on blur.
-                      onChange={(e) => { setClient({ ...client, gstin: e.target.value.toUpperCase() }); setGstinHint(null); }}
-                      onBlur={handleClientGstinBlur} placeholder="Optional" maxLength={20} />
-                    {gstinHint && (
-                      <small style={{ color: gstinHint.tone === 'warn' ? '#d97706' : '#16a34a', fontSize: '0.7rem', display: 'block', marginTop: '0.2rem' }}>
-                        {gstinHint.tone === 'warn' ? '⚠' : '✓'} {gstinHint.message}
-                      </small>
-                    )}
-                  </div>
-                );
-              })()}
             </div>
           </div>
 
-          {/* Invoice Details */}
+          {/* Invoice Details - Compact Space-Filling Grid */}
           <div className="glass-panel p-6 mb-6">
             <h3 className="section-title">Invoice Details</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group">
-                <label className="form-label">Invoice Number</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.65rem' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Invoice Number *</label>
                 <input type="text" className="form-input" value={details.invoiceNumber}
+                  style={{ fontWeight: 700 }}
                   onChange={(e) => setDetails({ ...details, invoiceNumber: e.target.value })} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Invoice Date</label>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Invoice Date *</label>
                 <input type="date" className="form-input" value={details.invoiceDate}
                   onChange={(e) => setDetails({ ...details, invoiceDate: e.target.value })} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Due Date</label>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Due Date</label>
                 <input type="date" className="form-input" value={details.dueDate}
                   onChange={(e) => setDetails({ ...details, dueDate: e.target.value })} />
               </div>
-              <div className="form-group">
-                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.76rem', marginBottom: '3px' }}>
                   <span>Broker (दलाल / एजेंट)</span>
-                  <button type="button" onClick={() => setShowBrokerModal(true)} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+                  <button type="button" onClick={() => setShowBrokerModal(true)} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}>
                     + Add Broker
                   </button>
                 </label>
                 <select
                   className="form-input"
                   value={details.brokerName || ''}
+                  style={{ color: details.brokerName ? '#dc2626' : undefined, fontWeight: details.brokerName ? 600 : undefined }}
                   onChange={(e) => {
                     if (e.target.value === '__NEW__') {
                       setShowBrokerModal(true);
@@ -4486,23 +4532,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   <option value="__NEW__">➕ Add New Broker...</option>
                 </select>
               </div>
-              {details.challanNumber && (
-                <div className="form-group">
-                  <label className="form-label">Linked Challan No (संबंधित चालान)</label>
-                  <input
-                    type="text"
-                    readOnly
-                    className="form-input"
-                    style={{ background: 'var(--bg-secondary)', fontWeight: 700, color: 'var(--primary)' }}
-                    value={details.challanNumber}
-                  />
-                </div>
-              )}
               {invoiceOptions.showPlaceOfSupply && (() => {
                 const posOpts = getStatesForCountry(profile?.country);
                 return (
-                  <div className="form-group">
-                    <label className="form-label">Place of Supply</label>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Place of Supply</label>
                     {posOpts.length > 0 ? (
                       <select className="form-input" value={details.placeOfSupply}
                         onChange={(e) => setDetails({ ...details, placeOfSupply: e.target.value })}>
@@ -4516,6 +4550,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   </div>
                 );
               })()}
+              {details.challanNumber && (
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Linked Challan No (संबंधित चालान)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-input"
+                    style={{ background: 'var(--bg-secondary)', fontWeight: 700, color: 'var(--primary)' }}
+                    value={details.challanNumber}
+                  />
+                </div>
+              )}
               {invoiceType === 'credit-note' && (
                 <div className="form-group full-width">
                   <label className="form-label">Original Invoice Reference</label>

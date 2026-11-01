@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 // invoice-level discount, and round-off. Previously the recurring auto-fire
 // re-implemented totals inline and silently reintroduced every bug the
 // v1.10.1 extraction fixed. Same source of truth now.
-import { templateTotals, clientYearToDate, nextCounterValue, startFor, numberSeriesFor, counterKeyFor, formatDocNumber, businessKeyOf, getFinancialYearLabel, INVOICE_TYPES } from './src/utils.js';
+import { templateTotals, clientYearToDate, nextCounterValue, startFor, numberSeriesFor, counterKeyFor, formatDocNumber, businessKeyOf, getFinancialYearLabel, INVOICE_TYPES, decodeGstin, stateNameForCode } from './src/utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -26,9 +26,17 @@ const DATA_DIR = path.join(__dirname, 'data');
 // by any common software we could find. The persisted `data/port.txt` always
 // wins over this default — so a single user who genuinely needs 47371 for
 // something else can edit that file and we'll respect it forever.
-const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 3000;
+// Parse CLI flags like --port and --host
+function getCliArg(flag) {
+  const idx = process.argv.indexOf(flag);
+  return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : null;
+}
+const cliPort = getCliArg('--port');
+const cliHost = getCliArg('--host');
+
+const DEFAULT_PORT = parseInt(cliPort || process.env.PORT, 10) || 3000;
 const PORT_FILE = path.join(__dirname, 'data', 'port.txt');
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = cliHost || process.env.HOST || '0.0.0.0';
 
 // Read the persisted port (if any) — written once on first successful start
 // and every time we get bumped off our preferred port by EADDRINUSE.
@@ -39,7 +47,7 @@ const persistedPort = (() => {
     return (isFinite(n) && n >= 1024 && n <= 65535) ? n : null;
   } catch { return null; }
 })();
-const STARTING_PORT = parseInt(process.env.PORT, 10) || persistedPort || DEFAULT_PORT;
+const STARTING_PORT = parseInt(cliPort || process.env.PORT, 10) || persistedPort || DEFAULT_PORT;
 const MAX_PORT_SCAN = 50;
 
 const app = express();
@@ -346,6 +354,182 @@ app.delete('/api/clients/:id', (req, res) => {
   const filePath = path.join(DATA_DIR, 'clients', safeFileName(req.params.id) + '.json');
   deleteFile(filePath);
   res.json({ success: true });
+});
+
+// ========================
+// GSTIN DIRECT LOOKUP & SYNC (ClearTax style API sync + local history)
+// ========================
+app.get('/api/gstin-lookup/:gstin', async (req, res) => {
+  try {
+    const raw = String(req.params.gstin || '').trim().toUpperCase();
+    const clean = raw.replace(/[^A-Z0-9]/g, '');
+    if (clean.length !== 15) {
+      return res.status(400).json({ ok: false, error: 'GSTIN must be 15 characters' });
+    }
+
+    const decoded = decodeGstin(clean) || {};
+    const stateName = decoded.state || stateNameForCode(clean.slice(0, 2)) || '';
+    const pan = decoded.pan || clean.slice(2, 12);
+    const entityType = decoded.entityType || '';
+
+    // 1. Check local records (saved clients, bills, purchases, challans)
+    const clients = readAllFromDir('clients');
+    const matchedClient = clients.find(c => c && c.gstin && c.gstin.trim().toUpperCase() === clean);
+    if (matchedClient) {
+      return res.json({
+        ok: true,
+        source: 'local-client',
+        gstin: clean,
+        name: matchedClient.name || '',
+        tradeName: matchedClient.name || '',
+        legalName: matchedClient.name || '',
+        address: matchedClient.address || '',
+        city: matchedClient.city || '',
+        pin: matchedClient.pin || '',
+        state: matchedClient.state || stateName,
+        phone: matchedClient.phone || '',
+        email: matchedClient.email || '',
+        country: matchedClient.country || 'India',
+        pan,
+        entityType,
+        brokerName: matchedClient.brokerName || matchedClient.broker || '',
+        status: 'Active',
+      });
+    }
+
+    // Check past bills
+    const bills = readAllFromDir('bills');
+    for (const b of bills) {
+      const cl = b?.data?.client;
+      if (cl && cl.gstin && cl.gstin.trim().toUpperCase() === clean) {
+        return res.json({
+          ok: true,
+          source: 'local-bill',
+          gstin: clean,
+          name: cl.name || '',
+          tradeName: cl.name || '',
+          legalName: cl.name || '',
+          address: cl.address || '',
+          city: cl.city || '',
+          pin: cl.pin || '',
+          state: cl.state || stateName,
+          phone: cl.phone || '',
+          email: cl.email || '',
+          country: cl.country || 'India',
+          pan,
+          entityType,
+          brokerName: b?.data?.details?.brokerName || '',
+          status: 'Active',
+        });
+      }
+    }
+
+    // Check past challans
+    const challans = readAllFromDir('challans');
+    for (const ch of challans) {
+      if (ch && ch.clientGstin && ch.clientGstin.trim().toUpperCase() === clean) {
+        return res.json({
+          ok: true,
+          source: 'local-challan',
+          gstin: clean,
+          name: ch.clientName || '',
+          tradeName: ch.clientName || '',
+          legalName: ch.clientName || '',
+          address: ch.clientAddress || '',
+          city: ch.station || '',
+          pin: '',
+          state: ch.clientState || stateName,
+          phone: ch.clientPhone || '',
+          email: '',
+          country: 'India',
+          pan,
+          entityType,
+          brokerName: ch.brokerName || '',
+          status: 'Active',
+        });
+      }
+    }
+
+    // 2. Query open taxpayer public APIs with 3.5s timeout
+    let apiData = null;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 3500);
+      const publicEndpoints = [
+        `https://api.gstincheck.co.in/check/${clean}`,
+        `https://sheet.gstincheck.co.in/check/${clean}`
+      ];
+      for (const endpoint of publicEndpoints) {
+        try {
+          const apiRes = await fetch(endpoint, {
+            signal: ctrl.signal,
+            headers: { 'Accept': 'application/json', 'User-Agent': 'FreeGSTBill-sync' },
+          });
+          if (apiRes.ok) {
+            const parsed = await apiRes.json();
+            const d = parsed.data || parsed;
+            if (d && (d.tradeNam || d.lgnm || d.legalName || d.tradeName)) {
+              apiData = d;
+              break;
+            }
+          }
+        } catch { /* continue */ }
+      }
+      clearTimeout(t);
+    } catch { /* timeout or offline */ }
+
+    if (apiData) {
+      const addrObj = apiData.pradr?.addr || apiData.address || {};
+      const streetParts = [
+        addrObj.bno, addrObj.bnm, addrObj.st, addrObj.loc, addrObj.locality
+      ].filter(Boolean).join(', ');
+      const cityName = addrObj.dst || addrObj.city || addrObj.district || '';
+      const pinCode = addrObj.pncd || addrObj.pincode || addrObj.pin || '';
+      const tradeName = apiData.tradeNam || apiData.tradeName || apiData.lgnm || apiData.legalName || '';
+      const legalName = apiData.lgnm || apiData.legalName || tradeName;
+      const finalState = addrObj.stcd || apiData.state || stateName;
+
+      return res.json({
+        ok: true,
+        source: 'gstn-api',
+        gstin: clean,
+        name: tradeName || legalName,
+        tradeName,
+        legalName,
+        address: streetParts || (typeof apiData.address === 'string' ? apiData.address : ''),
+        city: cityName,
+        pin: pinCode,
+        state: finalState,
+        country: 'India',
+        pan,
+        entityType: apiData.ctb || entityType,
+        status: apiData.sts || apiData.status || 'Active',
+        taxpayerType: apiData.dty || 'Regular',
+        brokerName: '',
+      });
+    }
+
+    // 3. Fallback: return decoded state and PAN
+    return res.json({
+      ok: true,
+      source: 'decoded',
+      gstin: clean,
+      name: '',
+      tradeName: '',
+      legalName: '',
+      address: '',
+      city: '',
+      pin: '',
+      state: stateName,
+      country: 'India',
+      pan,
+      entityType,
+      status: 'Active',
+      brokerName: '',
+    });
+  } catch (err) {
+    errRes(res, 500, 'server-error', err);
+  }
 });
 
 // ========================
@@ -1312,6 +1496,162 @@ app.post('/api/control-panel/launch-script', async (req, res) => {
   res.json(result);
 });
 
+// ============================================================
+// Direct GSTIN Lookup API (ClearTax-style public sync & local store)
+// ============================================================
+app.get('/api/gstin-lookup/:gstin', async (req, res) => {
+  try {
+    const raw = String(req.params.gstin || '').trim().toUpperCase();
+    if (!raw || raw.length < 15) {
+      return res.status(400).json({ error: 'Valid 15-character GSTIN is required' });
+    }
+    const gstin = raw.slice(0, 15);
+    const decoded = decodeGstin(gstin) || {};
+
+    let localResult = null;
+
+    // Check saved clients first
+    const clientFiles = readAllFromDir('clients');
+    const matchedClient = clientFiles.find(c => (c && c.gstin ? c.gstin.trim().toUpperCase() : '') === gstin);
+    if (matchedClient) {
+      localResult = {
+        gstin,
+        tradeName: matchedClient.name,
+        legalName: matchedClient.name,
+        address: matchedClient.address || '',
+        city: matchedClient.city || '',
+        state: matchedClient.state || decoded.state || '',
+        pin: matchedClient.pin || '',
+        phone: matchedClient.phone || '',
+        email: matchedClient.email || '',
+        brokerName: matchedClient.brokerName || matchedClient.broker || '',
+        source: 'local-client',
+        pan: decoded.pan || '',
+        entityType: decoded.entityType || '',
+        checksumOk: decoded.checksumOk,
+      };
+    }
+
+    // Check past invoices if not found in clients
+    if (!localResult) {
+      const billFiles = readAllFromDir('bills');
+      const matchedBill = billFiles.find(b => (b && b.data?.client?.gstin ? b.data.client.gstin.trim().toUpperCase() : '') === gstin);
+      if (matchedBill && matchedBill.data?.client) {
+        const c = matchedBill.data.client;
+        localResult = {
+          gstin,
+          tradeName: c.name || '',
+          legalName: c.name || '',
+          address: c.address || '',
+          city: c.city || '',
+          state: c.state || decoded.state || '',
+          pin: c.pin || '',
+          phone: c.phone || '',
+          email: c.email || '',
+          brokerName: c.brokerName || matchedBill.data?.details?.brokerName || '',
+          source: 'local-invoice',
+          pan: decoded.pan || '',
+          entityType: decoded.entityType || '',
+          checksumOk: decoded.checksumOk,
+        };
+      }
+    }
+
+    // Check purchases
+    if (!localResult) {
+      const purchaseFiles = readAllFromDir('purchases');
+      const matchedPurchase = purchaseFiles.find(p => (p && p.supplierGstin ? p.supplierGstin.trim().toUpperCase() : '') === gstin);
+      if (matchedPurchase) {
+        localResult = {
+          gstin,
+          tradeName: matchedPurchase.supplierName || '',
+          legalName: matchedPurchase.supplierName || '',
+          address: matchedPurchase.supplierAddress || '',
+          state: decoded.state || '',
+          brokerName: matchedPurchase.brokerName || '',
+          source: 'local-purchase',
+          pan: decoded.pan || '',
+          entityType: decoded.entityType || '',
+          checksumOk: decoded.checksumOk,
+        };
+      }
+    }
+
+    // If local result has name and address, return it
+    if (localResult && localResult.tradeName && localResult.address) {
+      return res.json(localResult);
+    }
+
+    // Attempt online public taxpayer directory lookup with 3.5s timeout
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3500);
+      const onlineResp = await fetch(`https://api.gstincheck.co.in/check/${gstin}`, {
+        headers: { 'User-Agent': 'FreeGSTBillingSoftware/1.10' },
+        signal: controller.signal,
+      }).catch(() => null);
+      clearTimeout(timer);
+
+      if (onlineResp && onlineResp.ok) {
+        const json = await onlineResp.json();
+        const d = json?.data || json;
+        if (d && (d.tradeNam || d.lgnm || d.legalName || d.tradeName)) {
+          const addrParts = [];
+          const bno = d.pradr?.addr?.bno || d.bno;
+          const bnm = d.pradr?.addr?.bnm || d.bnm;
+          const st = d.pradr?.addr?.st || d.st;
+          const loc = d.pradr?.addr?.loc || d.loc;
+          const dst = d.pradr?.addr?.dst || d.city || '';
+          const pncd = d.pradr?.addr?.pncd || d.pin || '';
+          if (bno || bnm) addrParts.push([bno, bnm].filter(Boolean).join(' '));
+          if (st) addrParts.push(st);
+          if (loc) addrParts.push(loc);
+          if (dst) addrParts.push(dst);
+
+          return res.json({
+            gstin,
+            tradeName: d.tradeNam || d.tradeName || d.lgnm || d.legalName || (localResult?.tradeName) || '',
+            legalName: d.lgnm || d.legalName || d.tradeNam || '',
+            address: addrParts.join(', ') || (localResult?.address) || '',
+            city: dst || (localResult?.city) || '',
+            pin: pncd || (localResult?.pin) || '',
+            state: d.pradr?.addr?.stcd || decoded.state || (localResult?.state) || '',
+            status: d.sts || 'Active',
+            pan: decoded.pan || '',
+            entityType: decoded.entityType || '',
+            checksumOk: decoded.checksumOk,
+            source: 'online-registry',
+          });
+        }
+      }
+    } catch {
+      // Online lookup fallback to local or decoded
+    }
+
+    if (localResult) {
+      return res.json(localResult);
+    }
+
+    // Clean decoded fallback
+    res.json({
+      gstin,
+      tradeName: '',
+      legalName: '',
+      address: '',
+      city: '',
+      pin: '',
+      state: decoded.state || '',
+      stateCode: decoded.stateCode || '',
+      pan: decoded.pan || '',
+      entityType: decoded.entityType || '',
+      checksumOk: decoded.checksumOk,
+      source: 'decoded-gstin',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'GSTIN lookup failed' });
+  }
+});
+
 // ========================
 // Serve production build
 // ========================
@@ -1840,10 +2180,10 @@ function startServer(port) {
     console.log(`  Data stored in: ${DATA_DIR}\n`);
   });
   server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE' && !process.env.PORT && port < STARTING_PORT + MAX_PORT_SCAN) {
+    if (err.code === 'EADDRINUSE' && !process.env.PORT && !cliPort && port < STARTING_PORT + MAX_PORT_SCAN) {
       console.log(`  Port ${port} is busy, trying ${port + 1}...`);
       startServer(port + 1);
-    } else if (err.code === 'EADDRINUSE' && !process.env.PORT) {
+    } else if (err.code === 'EADDRINUSE' && !process.env.PORT && !cliPort) {
       console.warn(`  Scanned ${MAX_PORT_SCAN} ports from ${STARTING_PORT} — letting OS assign a free one.`);
       startServer(0);
     } else {

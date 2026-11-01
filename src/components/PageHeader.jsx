@@ -18,54 +18,31 @@
 export default function PageHeader({ icon, title, subtitle, meta, children, compact = false }) {
   if (compact) {
     return (
-      <div className="page-header page-header-compact" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.45rem', padding: 0 }}>
-        <h1 className="page-title" style={{ margin: 0, fontSize: '1.15rem' }}>{title}</h1>
-        {meta && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>{meta}</span>}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>{children}</div>
+      <div className="page-header page-header-compact">
+        <h1 className="page-title">{title}</h1>
+        {meta && <span className="page-header-meta">{meta}</span>}
+        <div className="page-header-actions">{children}</div>
       </div>
     );
   }
   return (
-    <div className="page-header" style={{
-      padding: '0.45rem 0.75rem',
-      background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.12), var(--card-bg))',
-      border: '1px solid var(--border)',
-      borderRadius: 8,
-      marginBottom: '0.55rem',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+    <div className="page-header">
+      <div className="page-header-row">
         {icon !== undefined && (
-          <div style={{
-            width: 32, height: 32,
-            borderRadius: 6,
-            background: 'linear-gradient(135deg, var(--primary), var(--primary-darker))',
-            color: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '0.95rem',
-            boxShadow: '0 2px 8px rgba(var(--primary-rgb), 0.25)',
-            flexShrink: 0,
-          }}>{icon}</div>
+          <div className="page-header-icon">{icon}</div>
         )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 className="page-title" style={{ margin: 0, fontSize: '1.15rem', lineHeight: 1.2 }}>{title}</h1>
+        <div className="page-header-titles">
+          <h1 className="page-title">{title}</h1>
           {(subtitle || meta) && (
-            <p className="page-subtitle" style={{ margin: '0.1rem 0 0', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', fontSize: '0.75rem' }}>
+            <p className="page-subtitle">
               {subtitle && <span>{subtitle}</span>}
               {meta && (
-                <span style={{
-                  fontSize: '0.68rem',
-                  padding: '0.05rem 0.4rem',
-                  borderRadius: 999,
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border)',
-                  fontWeight: 600,
-                  color: 'var(--text)',
-                }}>{meta}</span>
+                <span className="page-header-meta">{meta}</span>
               )}
             </p>
           )}
         </div>
-        {children}
+        {children && <div className="page-header-actions">{children}</div>}
       </div>
     </div>
   );

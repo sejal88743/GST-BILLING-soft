@@ -787,13 +787,17 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
       {/* Add/Edit Client Modal */}
       <ClientModal show={showForm} onClose={closeForm} onSave={handleModalSave} client={modalClient} isEditing={!!editingClientId} defaultCountry={profileCountry} />
 
-      {/* Search */}
-      <div className="glass-panel p-4 mb-6">
-        <div className="search-box" style={{ maxWidth: '400px' }}>
+      {/* Search & Overview Stats in 1 Compact Row */}
+      <div className="glass-panel p-3 mb-4" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <div className="search-box" style={{ maxWidth: '380px', flex: 1, minWidth: '220px' }}>
           <Search size={16} className="search-icon" />
-          <input type="text" placeholder="Search clients..." value={search}
+          <input type="text" placeholder="Search clients by name, GSTIN, city..." value={search}
             onChange={e => setSearch(e.target.value)} className="search-input" />
           {search && <button className="icon-btn" onClick={() => setSearch('')}><X size={14} /></button>}
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+          <span>Total Clients: <strong style={{ color: 'var(--text-main)' }}>{allClientNames.length}</strong></span>
+          <span>Showing: <strong style={{ color: 'var(--primary)' }}>{sortedClients.length}</strong></span>
         </div>
       </div>
 
@@ -815,6 +819,7 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
             const savedClient = clients.find(c => c.name === clientName);
             const isExpanded = expandedClient === clientName;
             const clientBills = isExpanded ? getClientBills(clientName) : [];
+            const broker = savedClient?.brokerName || savedClient?.broker;
 
             return (
               <div key={clientName} className="glass-panel mb-4" style={{ overflow: 'hidden' }}>
@@ -825,11 +830,19 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
                       {clientName.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <h3 className="client-card-name">{clientName}</h3>
-                      <p className="client-card-meta">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <h3 className="client-card-name" style={{ margin: 0 }}>{clientName}</h3>
+                        {broker && (
+                          <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: 4, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', fontWeight: 600 }}>
+                            Broker: {broker}
+                          </span>
+                        )}
+                      </div>
+                      <p className="client-card-meta" style={{ marginTop: '2px' }}>
                         {stats.count} invoice{stats.count !== 1 ? 's' : ''}
                         {savedClient?.state ? ` | ${savedClient.state}` : ''}
                         {savedClient?.gstin ? ` | ${savedClient.gstin}` : ''}
+                        {savedClient?.city ? ` | ${savedClient.city}` : ''}
                       </p>
                     </div>
                   </div>

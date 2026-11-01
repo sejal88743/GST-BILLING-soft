@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { 
   getAllChallans, saveChallan, deleteChallan, 
-  getAllBrokers, saveBroker, getAllClients 
+  getAllBrokers, saveBroker, getAllClients,
+  lookupGstin
 } from '../store';
 import { formatCurrency, localToday } from '../utils';
 import { getIndianFinancialYear, matchesCompanyAndYear } from '../utils/companyContext';
@@ -289,16 +290,51 @@ export default function DeliveryChallan({
   const handleSelectClient = (clientName) => {
     const found = clients.find(c => c.name.toLowerCase() === clientName.toLowerCase());
     if (found) {
+      const assignedBroker = found.brokerName || found.broker || '';
       setCurrentChallan(prev => ({
         ...prev,
         clientName: found.name,
-        clientGstin: found.gstin || '',
-        clientAddress: found.address || '',
-        clientPhone: found.phone || '',
+        clientGstin: found.gstin || prev.clientGstin || '',
+        clientAddress: found.address || prev.clientAddress || '',
+        clientPhone: found.phone || prev.clientPhone || '',
         clientState: found.state || prev.clientState,
+        brokerName: assignedBroker || prev.brokerName || '',
       }));
+      if (assignedBroker) {
+        toast(`Selected party with Broker: ${assignedBroker}`, 'info');
+      }
     } else {
       setCurrentChallan(prev => ({ ...prev, clientName }));
+    }
+  };
+
+  // Direct GSTIN Sync for Challan
+  const handleChallanGstinSync = async (rawGstin) => {
+    const gstin = (rawGstin || currentChallan.clientGstin || '').trim().toUpperCase();
+    if (!gstin || gstin.length < 15) {
+      toast('Enter a valid 15-character GSTIN to auto-sync', 'info');
+      return;
+    }
+    toast('Syncing GSTIN data...', 'info');
+    try {
+      const data = await lookupGstin(gstin);
+      if (data) {
+        // Check if there is an existing client in database with this GSTIN to pick broker
+        const matchedClient = clients.find(c => (c.gstin || '').trim().toUpperCase() === gstin);
+        const broker = matchedClient?.brokerName || matchedClient?.broker || '';
+        
+        setCurrentChallan(prev => ({
+          ...prev,
+          clientGstin: gstin,
+          clientName: matchedClient?.name || data.tradeName || data.legalName || prev.clientName,
+          clientAddress: matchedClient?.address || data.address || prev.clientAddress,
+          clientState: data.state || matchedClient?.state || prev.clientState,
+          brokerName: broker || prev.brokerName,
+        }));
+        toast(`Auto-filled: ${data.tradeName || gstin}${broker ? ` | Broker: ${broker}` : ''}`, 'success');
+      }
+    } catch {
+      toast('Could not fetch GSTIN info', 'warn');
     }
   };
 
@@ -730,10 +766,10 @@ export default function DeliveryChallan({
             </div>
           </div>
 
-          {/* Challan Meta Fields */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          {/* Challan Meta Fields - Compact Row 1 */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: '0.45rem', marginBottom: '0.5rem' }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Challan No (चालान नं) *</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Challan No (चालान नं) *</label>
               <input
                 type="text"
                 className="form-input"
@@ -745,7 +781,7 @@ export default function DeliveryChallan({
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Challan Date (तारीख) *</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Challan Date (तारीख) *</label>
               <input
                 type="date"
                 className="form-input"
@@ -755,8 +791,8 @@ export default function DeliveryChallan({
                 style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Party Name (खरीददार पार्टी) *</label>
+            <div className="form-group" style={{ margin: 0, minWidth: '200px' }}>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Party Name (खरीददार पार्टी) *</label>
               <input
                 type="text"
                 className="form-input"
@@ -772,23 +808,41 @@ export default function DeliveryChallan({
               </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Party GSTIN</label>
-              <input
-                type="text"
-                className="form-input"
-                value={currentChallan.clientGstin}
-                onChange={e => setCurrentChallan({ ...currentChallan, clientGstin: e.target.value.toUpperCase() })}
-                placeholder="e.g. 24AUCPS7939J1Z3"
-                style={{ fontSize: '0.82rem', height: '28px' }}
-              />
+              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem', marginBottom: '2px' }}>
+                <span>Party GSTIN</span>
+                <button
+                  type="button"
+                  onClick={() => handleChallanGstinSync()}
+                  style={{ background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700 }}
+                  title="Direct GSTIN lookup & auto-fill"
+                >
+                  ⚡ Sync GST
+                </button>
+              </label>
+              <div style={{ display: 'flex', gap: '3px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={currentChallan.clientGstin}
+                  onChange={e => setCurrentChallan({ ...currentChallan, clientGstin: e.target.value.toUpperCase() })}
+                  onBlur={() => {
+                    if (currentChallan.clientGstin && currentChallan.clientGstin.length === 15 && !currentChallan.clientName) {
+                      handleChallanGstinSync(currentChallan.clientGstin);
+                    }
+                  }}
+                  placeholder="e.g. 24AUCPS7939J1Z3"
+                  maxLength={15}
+                  style={{ fontSize: '0.82rem', height: '28px', textTransform: 'uppercase' }}
+                />
+              </div>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
+              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem', marginBottom: '2px' }}>
                 <span>Agent / Broker (दलाल)</span>
                 <button
                   type="button"
                   onClick={() => setShowBrokerModal(true)}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600 }}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 600 }}
                 >
                   + Add
                 </button>
@@ -800,7 +854,7 @@ export default function DeliveryChallan({
                 placeholder="e.g. JAGDISH PUROHIT"
                 value={currentChallan.brokerName}
                 onChange={e => setCurrentChallan({ ...currentChallan, brokerName: e.target.value })}
-                style={{ fontSize: '0.82rem', height: '28px' }}
+                style={{ fontSize: '0.82rem', height: '28px', color: currentChallan.brokerName ? '#dc2626' : undefined, fontWeight: currentChallan.brokerName ? 600 : undefined }}
               />
               <datalist id="broker-suggestions">
                 {brokers.map(b => (
@@ -810,15 +864,15 @@ export default function DeliveryChallan({
             </div>
           </div>
 
-          {/* Party Market Address */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Party Surat Market Address (दुकान / मार्केट नं)</label>
+          {/* Compact Row 2: Market Address, Station, Quality, Lot No, Rate, Transport */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.45rem', marginBottom: '0.75rem', background: 'var(--bg-secondary)', padding: '0.5rem 0.65rem', borderRadius: '8px' }}>
+            <div className="form-group" style={{ margin: 0, minWidth: '220px', gridColumn: 'span 2' }}>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Party Surat Market Address (दुकान / मार्केट नं)</label>
               <input
                 type="text"
                 className="form-input"
                 list="surat-market-suggestions"
-                placeholder="e.g. SHOP NO-1664-1665, RADHA KRISHNA MARKET, RING ROAD, SURAT"
+                placeholder="SHOP NO-1664-1665, RADHA KRISHNA MARKET, RING ROAD, SURAT"
                 value={currentChallan.clientAddress}
                 onChange={e => setCurrentChallan({ ...currentChallan, clientAddress: e.target.value })}
                 style={{ fontSize: '0.82rem', height: '28px' }}
@@ -830,7 +884,7 @@ export default function DeliveryChallan({
               </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Station / City (स्टेशन)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Station / City (स्टेशन)</label>
               <input
                 type="text"
                 className="form-input"
@@ -840,17 +894,13 @@ export default function DeliveryChallan({
                 style={{ fontSize: '0.82rem', height: '28px' }}
               />
             </div>
-          </div>
-
-          {/* Textile Goods Info */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem', marginBottom: '0.75rem', background: 'var(--bg-secondary)', padding: '0.6rem 0.75rem', borderRadius: '8px' }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Item / Quality Name (क्वालिटी)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Item / Quality (क्वालिटी)</label>
               <input
                 type="text"
                 className="form-input"
                 list="quality-suggestions"
-                placeholder="e.g. D FIYONA 8.500 (REL*REL)"
+                placeholder="D FIYONA 8.500 (REL*REL)"
                 value={currentChallan.itemName}
                 onChange={e => setCurrentChallan({ ...currentChallan, itemName: e.target.value })}
                 style={{ fontSize: '0.82rem', height: '28px', fontWeight: 600 }}
@@ -862,18 +912,18 @@ export default function DeliveryChallan({
               </datalist>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Lot No (लॉट नं)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Lot No (लॉट नं)</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. 3 or LOT-402"
+                placeholder="e.g. 3"
                 value={currentChallan.lotNo}
                 onChange={e => setCurrentChallan({ ...currentChallan, lotNo: e.target.value })}
                 style={{ fontSize: '0.82rem', height: '28px', fontWeight: 700, color: '#dc2626' }}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Rate per Meter (₹ दर)</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Rate (₹ दर/m)</label>
               <input
                 type="number"
                 step="0.01"
@@ -885,11 +935,11 @@ export default function DeliveryChallan({
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.72rem' }}>Transport / Tempo No</label>
+              <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '2px' }}>Transport / Tempo</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. LOCAL TEMPO / GJ-05-XX-1234"
+                placeholder="LOCAL TEMPO / VEHICLE NO"
                 value={currentChallan.transportName}
                 onChange={e => setCurrentChallan({ ...currentChallan, transportName: e.target.value })}
                 style={{ fontSize: '0.82rem', height: '28px' }}

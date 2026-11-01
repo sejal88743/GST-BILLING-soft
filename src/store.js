@@ -587,3 +587,10 @@ export const setActiveFinancialYearSelection = (fy) => {
   try { localStorage.setItem(ACTIVE_FY_KEY, fy || ''); } catch { /* ignore */ }
 };
 
+// ---- GSTIN Direct Lookup & Sync (ClearTax Style) ----
+export const lookupGstin = async (gstin) => {
+  const clean = String(gstin || '').trim().toUpperCase();
+  if (clean.length < 15) throw new Error('Enter a valid 15-character GSTIN');
+  return apiFetch(`${API}/gstin-lookup/${encodeURIComponent(clean)}`);
+};
+

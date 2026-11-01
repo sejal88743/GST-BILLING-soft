@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye, UserCheck } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBrokers } from '../store';
+import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBrokers, lookupGstin } from '../store';
 import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, isInterstateSupply, localToday, roundQty } from '../utils';
 import { handleEnterKeyNavigation } from '../utils/enterKeyNav';
 import TableExport from './TableExport';
@@ -707,6 +707,31 @@ export default function PurchaseBills() {
     return interstate === null ? { ...prev, supplierGstin: value } : { ...prev, supplierGstin: value, interstate };
   });
 
+  const handleSupplierGstinSync = async (rawGstin) => {
+    const clean = (rawGstin || form.supplierGstin || '').trim().toUpperCase();
+    if (!clean || clean.length < 15) {
+      toast('Enter a valid 15-digit GSTIN to auto-sync', 'info');
+      return;
+    }
+    toast('Syncing Supplier GSTIN...', 'info');
+    try {
+      const data = await lookupGstin(clean);
+      if (data) {
+        const interstate = isInterstateSupply(clean, ownerProfile);
+        setForm(prev => ({
+          ...prev,
+          supplierGstin: clean,
+          supplierName: prev.supplierName || data.tradeName || data.legalName || '',
+          supplierAddress: prev.supplierAddress || data.address || '',
+          interstate: interstate !== null ? interstate : prev.interstate,
+        }));
+        toast(`Auto-filled: ${data.tradeName || clean} (${data.state})`, 'success');
+      }
+    } catch {
+      toast('Could not fetch supplier GSTIN info', 'warn');
+    }
+  };
+
   // Typing or picking a known supplier fills in the rest of their details.
   //
   // Deliberately only fills fields the user has left BLANK. Overwriting
@@ -1001,59 +1026,58 @@ export default function PurchaseBills() {
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '720px' }}>
             <form ref={formContainerRef} onKeyDown={(e) => handleEnterKeyNavigation(e, formContainerRef.current)} onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
             <h3 className="section-title">{editingId ? 'Edit Purchase Bill' : 'Add Purchase Bill'}</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group">
-                <label className="form-label">Date *</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.65rem' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Bill Date *</label>
                 <input type="date" className="form-input" value={form.date} onChange={e => updateField('date', e.target.value)} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Payment Status</label>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Invoice Number *</label>
+                <input type="text" className="form-input" value={form.invoiceNumber}
+                  style={{ fontWeight: 600 }}
+                  onChange={e => updateField('invoiceNumber', e.target.value)} placeholder="Supplier invoice no." />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Payment Status</label>
                 <select className="form-input" value={form.paymentStatus} onChange={e => updateField('paymentStatus', e.target.value)}>
                   {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Supplier Name *</label>
-                {/* v1.10.50 (#39) — recall previously used suppliers. A native
-                    <datalist> rather than a custom dropdown: it is keyboard
-                    accessible for free, does not trap focus, and degrades to a
-                    plain text field, which matters because a supplier not yet
-                    in the history must still be typeable. */}
+
+              {/* Row 2: Supplier, GSTIN (with sync), Broker */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Supplier Name *</label>
                 <input type="text" className="form-input" value={form.supplierName}
                   list="fgsb-supplier-history" autoComplete="off"
                   onChange={e => updateSupplierName(e.target.value)}
-                  placeholder={supplierHistory.length ? 'Type or pick a previous supplier' : 'Vendor / Supplier name'} />
-                {/* v1.10.52 (#40) — value ONLY, never child text or a label
-                    attribute. Browsers disagree about which one they show:
-                    Chrome lists the value with the label as secondary text,
-                    Firefox shows the label INSTEAD of the value. v1.10.50 put
-                    the GSTIN in the child text as a hint, so Firefox users got
-                    a list of GST numbers where supplier names should be.
-                    The GSTIN is auto-filled on selection anyway, so the hint
-                    bought nothing and cost the actual name. */}
+                  placeholder={supplierHistory.length ? 'Type or pick supplier' : 'Vendor / Supplier name'} />
                 <datalist id="fgsb-supplier-history">
                   {supplierHistory.map(s => <option key={s.name} value={s.name} />)}
                 </datalist>
               </div>
-              <div className="form-group">
-                <label className="form-label">Supplier GSTIN</label>
+              <div className="form-group" style={{ margin: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                  <label className="form-label" style={{ margin: 0, fontSize: '0.76rem' }}>Supplier GSTIN</label>
+                  <button
+                    type="button"
+                    onClick={() => handleSupplierGstinSync()}
+                    style={{ background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700 }}
+                    title="Direct GSTIN lookup & auto-fill"
+                  >
+                    ⚡ Sync GST
+                  </button>
+                </div>
                 <input type="text" className="form-input" value={form.supplierGstin}
-                  onChange={e => updateSupplierGstin(e.target.value)} placeholder="15-digit GSTIN" maxLength={15} />
+                  onChange={e => updateSupplierGstin(e.target.value.toUpperCase())}
+                  onBlur={() => {
+                    if (form.supplierGstin && form.supplierGstin.length === 15 && !form.supplierName) {
+                      handleSupplierGstinSync(form.supplierGstin);
+                    }
+                  }}
+                  placeholder="15-digit GSTIN" maxLength={15} style={{ textTransform: 'uppercase' }} />
               </div>
-              {/* v1.10.29 — Supplier address for the PDF. Optional; full width row. */}
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                <label className="form-label">Supplier Address (optional)</label>
-                <input type="text" className="form-input" value={form.supplierAddress || ''}
-                  onChange={e => updateField('supplierAddress', e.target.value)}
-                  placeholder="Street, City, State — printed on the Purchase Bill PDF" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Invoice Number *</label>
-                <input type="text" className="form-input" value={form.invoiceNumber}
-                  onChange={e => updateField('invoiceNumber', e.target.value)} placeholder="Supplier invoice no." />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Broker / Agent (दलाल)</label>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Broker / Agent (दलाल)</label>
                 <input
                   type="text"
                   className="form-input"
@@ -1066,12 +1090,20 @@ export default function PurchaseBills() {
                   {brokers.map(b => <option key={b.name} value={b.name} />)}
                 </datalist>
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                <label className="form-label">Note (optional)</label>
-                <input type="text" className="form-input" value={form.note}
-                  onChange={e => updateField('note', e.target.value)} placeholder="Any note..." />
+
+              {/* Row 3: Address and Note filling across */}
+              <div className="form-group" style={{ margin: 0, gridColumn: 'span 2' }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Supplier Address (optional)</label>
+                <input type="text" className="form-input" value={form.supplierAddress || ''}
+                  onChange={e => updateField('supplierAddress', e.target.value)}
+                  placeholder="Street, City, State — printed on the Purchase Bill PDF" />
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.76rem', marginBottom: '3px' }}>Note (optional)</label>
+                <input type="text" className="form-input" value={form.note}
+                  onChange={e => updateField('note', e.target.value)} placeholder="Internal note..." />
+              </div>
+              <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
                   <input type="checkbox" checked={!!form.interstate}
                     onChange={e => updateField('interstate', e.target.checked)}
